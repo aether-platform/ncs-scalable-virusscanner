@@ -1,0 +1,28 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  clamav:
+    image: clamav/clamav:latest
+    ports:
+      - "3310:3310"
+    volumes:
+      - ./test-data:/tmp/virusscan
+      - clamav-db:/var/lib/clamav
+
+  handler:
+    build: .
+    environment:
+      - REDIS_HOST=redis
+      - CLAMD_URL=tcp://clamav:3310
+      - SCAN_MOUNT=/tmp/virusscan
+    volumes:
+      - ./test-data:/tmp/virusscan
+    depends_on:
+      - redis
+      - clamav
+
+volumes:
+  clamav-db:
