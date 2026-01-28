@@ -12,7 +12,9 @@ class Container(containers.DeclarativeContainer):
         redis_port=config.redis_port,
         clamd_url=config.clamd_url,
         queues=config.queues,
-        scan_mount=config.scan_mount
+        scan_mount=config.scan_mount,
+        enable_memory_check=config.enable_memory_check,
+        min_free_memory_mb=config.min_free_memory_mb
     )
 
     redis_client = providers.Singleton(

@@ -12,11 +12,22 @@ COPY pyproject.toml README.md ./
 # Copy source code
 COPY src/ src/
 
-# Install the project and its dependencies
-RUN uv pip install --system .
+# Install flavor (consumer, producer, or all)
+# Build with: docker build --build-arg FLAVOR=consumer .
+ARG FLAVOR=all
+RUN uv pip install --system ".[$FLAVOR]"
 
 ENV PYTHONPATH=/app/src
 ENV PYTHONUNBUFFERED=1
 
-# Entry point using the console script defined in pyproject.toml
-CMD ["virus-scanner-handler"]
+# Create scan temp directory
+RUN mkdir -p /tmp/virusscan && chmod 777 /tmp/virusscan
+
+# Expose ports
+# 50051: Producer gRPC (ext_proc)
+# 8080: Producer metrics
+EXPOSE 50051 8080
+
+# Default: Run Consumer (Handler)
+# For Producer: docker run <image> python -m virus_scanner.producer.main
+CMD ["virus-scanner-handler", "--redis-host", "localhost", "--redis-port", "6379", "--clamd-url", "tcp://127.0.0.1:3310"]

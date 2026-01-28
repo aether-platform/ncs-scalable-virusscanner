@@ -12,8 +12,30 @@ services:
       - ./test-data:/tmp/virusscan
       - clamav-db:/var/lib/clamav
 
+  producer:
+    build:
+      context: .
+      args:
+        FLAVOR: producer
+    command: virus-scanner-producer
+    ports:
+      - "50051:50051"  # gRPC
+      - "8080:8080"    # Metrics
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SCAN_TMP_DIR=/tmp/virusscan
+      - SCAN_FILE_THRESHOLD_MB=10
+    volumes:
+      - ./test-data:/tmp/virusscan
+    depends_on:
+      - redis
+
   handler:
-    build: .
+    build:
+      context: .
+      args:
+        FLAVOR: consumer
     environment:
       - REDIS_HOST=redis
       - CLAMD_URL=tcp://clamav:3310

@@ -5,14 +5,28 @@ description = "NCS Virus Scanner Request Handler"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "redis>=7.1.0",  # Common dependency
+]
+
+[project.optional-dependencies]
+consumer = [
     "clamd>=1.0.2",
     "click>=8.3.1",
     "dependency-injector>=4.48.3",
-    "redis>=7.1.0",
+    "psutil>=5.9.0",  # Memory monitoring
+]
+producer = [
+    "grpcio>=1.60.0",
+    "grpcio-tools>=1.60.0",
+    "dependency-injector>=4.48.3",
+]
+all = [
+    "virus-scanner[consumer,producer]",
 ]
 
 [project.scripts]
-virus-scanner-handler = "virus_scanner.main:main"
+virus-scanner-handler = "virus_scanner.consumer.main:main"
+virus-scanner-producer = "virus_scanner.producer.main:serve"
 
 [build-system]
 requires = ["hatchling"]
