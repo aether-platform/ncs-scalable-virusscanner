@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import time
+from typing import Any, Callable
 
 import redis
 
@@ -17,17 +18,13 @@ class VirusScanHandler:
         settings: Settings,
         engine: ScannerEngine,
         coordinator: ClusterCoordinator,
-        stream_factory,
-        path_factory,
-        body_factory,
+        provider_factory: Callable[..., Any],
     ):
         self.redis = redis_client
         self.settings = settings
         self.engine = engine
         self.coordinator = coordinator
-        self.stream_factory = stream_factory
-        self.path_factory = path_factory
-        self.body_factory = body_factory
+        self.provider_factory = provider_factory
         self.logger = logging.getLogger(__name__)
 
     def _get_free_memory_mb(self) -> float:
@@ -63,7 +60,9 @@ class VirusScanHandler:
                 if not result:
                     continue
 
-                queue_name, task_data = result
+                queue_name_raw, task_data_raw = result
+                queue_name = queue_name_raw.decode("utf-8")
+                task_data = task_data_raw.decode("utf-8")
                 self._process_task(task_data, queue_name)
 
             except Exception as e:
@@ -92,17 +91,20 @@ class VirusScanHandler:
         task_id, mode, push_time_str, content = parts
         push_time = int(push_time_str)
 
-        # 1. Prepare Provider
-        provider = None
-        if mode == "PATH":
-            file_path = os.path.join(self.settings.scan_mount, content)
-            provider = self.path_factory(file_path=file_path)
-        elif mode == "BODY":
-            provider = self.body_factory(data=content.encode("latin1"))
-        elif mode == "STREAM":
-            provider = self.stream_factory(chunks_key=content)
-        else:
-            self.logger.error(f"Unknown mode: {mode}")
+        # 1. Prepare Provider via Unified Factory
+        try:
+            if mode == "PATH":
+                content = os.path.join(self.settings.scan_mount, content)
+                provider = self.provider_factory(mode, file_path=content)
+            elif mode == "BODY":
+                provider = self.provider_factory(mode, data=content.encode("latin1"))
+            elif mode == "STREAM":
+                provider = self.provider_factory(mode, chunks_key=content)
+            else:
+                self.logger.error(f"Unknown mode: {mode}")
+                return
+        except Exception as e:
+            self.logger.error(f"Failed to create provider for {mode}: {e}")
             return
 
         # 2. Execute Scan
@@ -133,8 +135,18 @@ class VirusScanHandler:
             "data_key": provider.get_data_key() if not is_virus else None,
             "metrics": {"scan_ms": duration * 1000, "total_tat_ms": total_tat_ms},
         }
-        self.redis.rpush(f"result:{task_id}", json.dumps(result_payload))
+        result_json = json.dumps(result_payload).encode("utf-8")
+        self.redis.rpush(f"result:{task_id}", result_json)
         self.redis.expire(f"result:{task_id}", 3600)
+
+        # 4. Record Metrics for Prometheus (Exposed via Producer)
+        try:
+            tat_key = (
+                "tat_priority_last" if "priority" in queue_name else "tat_normal_last"
+            )
+            self.redis.set(tat_key, str(total_tat_ms))
+        except Exception as e:
+            self.logger.warning(f"Failed to record metrics: {e}")
 
     def _process_legacy_task(self, task_json: str, queue_name: str):
         """Minimal support for old JSON format using the new Engine."""
@@ -143,8 +155,9 @@ class VirusScanHandler:
         file_path = task.get("file_path")
 
         if file_path:
-            provider = self.path_factory(
-                file_path=file_path, delete_after=False
-            )  # Legacy might expect file to stay
+            # Note: Legacy might expect file to stay, using PATH mode via aggregate
+            provider = self.provider_factory(
+                "PATH", file_path=file_path, delete_after=False
+            )
             is_virus, _ = self.engine.scan(provider)
             self.logger.info(f"Legacy task {task_id} result: {is_virus}")

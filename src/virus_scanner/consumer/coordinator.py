@@ -42,7 +42,12 @@ class ClusterCoordinator:
         if not target_info[0]:
             return
 
-        target_epoch = int(target_info[0])
+        target_epoch_raw = target_info[0]
+        target_epoch = int(
+            target_epoch_raw.decode("utf-8")
+            if isinstance(target_epoch_raw, bytes)
+            else target_epoch_raw
+        )
         if target_epoch <= self.current_epoch:
             return
 
@@ -139,8 +144,9 @@ class ClusterCoordinator:
         nodes = self.redis.smembers("clamav:active_nodes")
         all_updated = True
         for node_bin in nodes:
-            hb = self.redis.get(f"clamav:heartbeat:{node_bin.decode('utf-8')}")
-            if hb:
+            hb_raw = self.redis.get(f"clamav:heartbeat:{node_bin.decode('utf-8')}")
+            if hb_raw:
+                hb = hb_raw.decode("utf-8")
                 _, epoch = hb.split("|")
                 if int(epoch) < target_epoch:
                     all_updated = False

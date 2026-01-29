@@ -1,10 +1,14 @@
 import redis
 from dependency_injector import containers, providers
 
+from ..common.providers import (
+    InlineStreamProvider,
+    RedisStreamProvider,
+    SharedDiskStreamProvider,
+)
 from .coordinator import ClusterCoordinator
 from .engine import ScannerEngine
 from .handler import VirusScanHandler
-from .providers import BodyProvider, LocalFileProvider, RedisStreamProvider
 from .settings import Settings
 
 
@@ -26,16 +30,16 @@ class Container(containers.DeclarativeContainer):
         redis.Redis,
         host=config.redis_host,
         port=config.redis_port,
-        decode_responses=True,
+        decode_responses=False,
     )
 
-    redis_stream_provider = providers.Factory(
-        RedisStreamProvider, redis_client=redis_client
+    # A single aggregate provider that can create any of the stream implementations.
+    # This aligns with the "Union" / "Single Provider" design pattern.
+    data_provider = providers.FactoryAggregate(
+        STREAM=providers.Factory(RedisStreamProvider, redis_client=redis_client),
+        PATH=providers.Factory(SharedDiskStreamProvider),
+        BODY=providers.Factory(InlineStreamProvider),
     )
-
-    local_file_provider = providers.Factory(LocalFileProvider)
-
-    body_provider = providers.Factory(BodyProvider)
 
     engine = providers.Singleton(ScannerEngine, clamd_url=config.clamd_url)
 
@@ -49,7 +53,5 @@ class Container(containers.DeclarativeContainer):
         settings=settings,
         engine=engine,
         coordinator=coordinator,
-        stream_factory=redis_stream_provider.provider,
-        path_factory=local_file_provider.provider,
-        body_factory=body_provider.provider,
+        provider_factory=data_provider,
     )

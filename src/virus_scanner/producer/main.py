@@ -7,19 +7,19 @@ and blocks malicious content.
 Based on experiment/ncs-envoy-clamav/python/bridge.py
 """
 
+import json
 import logging
 import os
 import sys
 import threading
-import time
-import uuid
 from concurrent import futures
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import grpc
 import redis
 
-from .settings import ProducerSettings
+from .containers import ProducerContainer
+from .service import StreamScannerService
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,6 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Envoy ext_proc proto imports
 try:
-    from envoy.config.core.v3 import base_pb2
     from envoy.service.ext_proc.v3 import (
         external_processor_pb2,
         external_processor_pb2_grpc,
@@ -65,13 +64,20 @@ class HealthHandler(BaseHTTPRequestHandler):
             try:
                 prio_len = self.redis_client.llen("scan_priority")
                 norm_len = self.redis_client.llen("scan_normal")
-                prio_tat = self.redis_client.get("tat_priority_last") or "0"
-                norm_tat = self.redis_client.get("tat_normal_last") or "0"
+                prio_tat_raw = self.redis_client.get("tat_priority_last")
+                norm_tat_raw = self.redis_client.get("tat_normal_last")
+
+                prio_tat = prio_tat_raw.decode("utf-8") if prio_tat_raw else "0"
+                norm_tat = norm_tat_raw.decode("utf-8") if norm_tat_raw else "0"
 
                 res = f"virusscan_priority_queue_length {prio_len}\n"
                 res += f"virusscan_normal_queue_length {norm_len}\n"
                 res += f"virusscan_priority_tat_ms {prio_tat}\n"
                 res += f"virusscan_normal_tat_ms {norm_tat}\n"
+
+                ingest_tat_raw = self.redis_client.get("ingest_ms_last")
+                ingest_tat = ingest_tat_raw.decode("utf-8") if ingest_tat_raw else "0"
+                res += f"virusscan_ingest_tat_ms {ingest_tat}\n"
 
                 self.wfile.write(res.encode())
             except Exception as e:
@@ -101,9 +107,10 @@ class MetricsServer:
 
     def run(self):
         """Start HTTP server"""
-        handler = lambda *args, **kwargs: HealthHandler(
-            self.redis_client, *args, **kwargs
-        )
+
+        def handler(*args, **kwargs):
+            return HealthHandler(self.redis_client, *args, **kwargs)
+
         try:
             httpd = HTTPServer(("0.0.0.0", self.port), handler)
             logger.info(f"Starting metrics server on :{self.port}...")
@@ -115,12 +122,13 @@ class MetricsServer:
 class ExternalProcessorServicer(external_processor_pb2_grpc.ExternalProcessorServicer):
     """Envoy External Processor implementation"""
 
-    def __init__(self, redis_client: redis.Redis, settings: ProducerSettings):
-        self.redis = redis_client
-        self.settings = settings
+    def __init__(self, scanner_service: StreamScannerService):
+        self.scanner = scanner_service
 
     def Process(self, request_iterator, context):
         is_priority = False
+        task_id = None
+        provider = None
 
         # Accessing Enum values - flattened in Python but using full path for clarity/reliability if possible
         # CONTINUE = external_processor_pb2.CommonResponse.ResponseStatus.CONTINUE
@@ -129,7 +137,7 @@ class ExternalProcessorServicer(external_processor_pb2_grpc.ExternalProcessorSer
             CONTINUE_STATUS = (
                 external_processor_pb2.CommonResponse.ResponseStatus.Value("CONTINUE")
             )
-        except:
+        except (AttributeError, KeyError, ValueError):
             CONTINUE_STATUS = (
                 0  # Default to 0 based on proto definition if attribute access fails
             )
@@ -139,6 +147,7 @@ class ExternalProcessorServicer(external_processor_pb2_grpc.ExternalProcessorSer
                 if req.HasField("request_headers"):
                     logger.info("Received request headers")
                     for header in req.request_headers.headers.headers:
+                        # TODO: will be implemented fetch priority kubernetes pod environment variable
                         if (
                             header.key.lower() == "x-priority"
                             and header.value.lower() == "high"
@@ -158,53 +167,23 @@ class ExternalProcessorServicer(external_processor_pb2_grpc.ExternalProcessorSer
                     body = req.request_body.body
                     logger.info(f"Received request body chunk, len: {len(body)}")
 
-                    task_id = str(uuid.uuid4())
-                    payload_mode = "BODY"
-                    payload_content = body.decode("latin1")  # Preserve raw bytes
-
-                    # Check for large files
-                    if len(body) > self.settings.scan_file_threshold_mb * 1024 * 1024:
-                        if not os.path.exists(self.settings.scan_tmp_dir):
-                            os.makedirs(self.settings.scan_tmp_dir)
-                        file_path = os.path.join(self.settings.scan_tmp_dir, task_id)
-                        with open(file_path, "wb") as f:
-                            f.write(body)
-                        payload_mode = "PATH"
-                        payload_content = file_path
-
-                    queue_name = "scan_priority" if is_priority else "scan_normal"
-                    now_ns = time.time_ns()
-
-                    # Task format: taskID|MODE|TIMESTAMP|CONTENT
-                    self.redis.lpush(
-                        queue_name,
-                        f"{task_id}|{payload_mode}|{now_ns}|{payload_content}",
-                    )
-
-                    # Wait for result
-                    res = self.redis.brpop(f"result:{task_id}", timeout=30)
-
-                    if not res:
-                        logger.error("Timeout waiting for scan result")
-                        yield external_processor_pb2.ProcessingResponse(
-                            request_body=external_processor_pb2.BodyResponse(
-                                response=external_processor_pb2.CommonResponse(
-                                    status=CONTINUE_STATUS
-                                )
-                            )
+                    if not task_id:
+                        task_id, provider = self.scanner.prepare_scan(
+                            is_priority=is_priority
                         )
-                    else:
-                        _, status = res
-                        if status == "INFECTED":
-                            msg = "Virus detected!"
-                            yield external_processor_pb2.ProcessingResponse(
-                                immediate_response=external_processor_pb2.ImmediateResponse(
-                                    status=http_status_pb2.HttpStatus(code=403),
-                                    details=msg,
-                                    body=msg.encode(),
-                                )
-                            )
-                        else:
+                        self.scanner.emit_task(task_id, is_priority=is_priority)
+
+                    provider.push_chunk(body)
+
+                    if req.request_body.end_of_stream:
+                        provider.finalize_push()
+                        self.scanner.record_ingest_time(task_id)
+
+                        # 2. Wait for result (only on the last chunk)
+                        status_raw = self.scanner.wait_for_result(task_id, timeout=30)
+
+                        if not status_raw:
+                            logger.error("Timeout waiting for scan result")
                             yield external_processor_pb2.ProcessingResponse(
                                 request_body=external_processor_pb2.BodyResponse(
                                     response=external_processor_pb2.CommonResponse(
@@ -212,6 +191,36 @@ class ExternalProcessorServicer(external_processor_pb2_grpc.ExternalProcessorSer
                                     )
                                 )
                             )
+                        else:
+                            status_json = status_raw.decode("utf-8")
+                            status_data = json.loads(status_json)
+
+                            if status_data.get("status") == "INFECTED":
+                                msg = f"Virus detected! {status_data.get('virus', '')}"
+                                yield external_processor_pb2.ProcessingResponse(
+                                    immediate_response=external_processor_pb2.ImmediateResponse(
+                                        status=http_status_pb2.HttpStatus(code=403),
+                                        details=msg,
+                                        body=msg.encode(),
+                                    )
+                                )
+                            else:
+                                yield external_processor_pb2.ProcessingResponse(
+                                    request_body=external_processor_pb2.BodyResponse(
+                                        response=external_processor_pb2.CommonResponse(
+                                            status=CONTINUE_STATUS
+                                        )
+                                    )
+                                )
+                    else:
+                        # Continue receiving chunks
+                        yield external_processor_pb2.ProcessingResponse(
+                            request_body=external_processor_pb2.BodyResponse(
+                                response=external_processor_pb2.CommonResponse(
+                                    status=CONTINUE_STATUS
+                                )
+                            )
+                        )
 
                 else:
                     # Other phases
@@ -231,9 +240,10 @@ class ExternalProcessorServicer(external_processor_pb2_grpc.ExternalProcessorSer
 class ProducerService:
     """Producer gRPC service"""
 
-    def __init__(self, redis_client: redis.Redis, settings: ProducerSettings):
-        self.redis = redis_client
-        self.settings = settings
+    def __init__(self, container: "ProducerContainer"):
+        self.redis = container.redis_client()
+        self.settings = container.settings()
+        self.container = container
         self.server = None
         self.metrics_server = None
 
@@ -247,7 +257,7 @@ class ProducerService:
         # Start gRPC server
         self.server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
         external_processor_pb2_grpc.add_ExternalProcessorServicer_to_server(
-            ExternalProcessorServicer(self.redis, self.settings), self.server
+            ExternalProcessorServicer(self.container.scanner_service()), self.server
         )
         self.server.add_insecure_port("[::]:50051")
         logger.info("Starting Virus Scanner Producer (Envoy ext_proc) on port 50051...")
@@ -272,7 +282,6 @@ class ProducerService:
 
 def serve():
     """Entry point for virus-scanner-producer command"""
-    from .containers import ProducerContainer
 
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
@@ -290,9 +299,7 @@ def serve():
         }
     )
 
-    service = ProducerService(
-        redis_client=container.redis_client(), settings=container.settings()
-    )
+    service = ProducerService(container=container)
     service.start()
 
 

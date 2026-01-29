@@ -1,14 +1,15 @@
-from typing import List
+from ..common.settings import BaseSettings
 
-class ProducerSettings:
+
+class ProducerSettings(BaseSettings):
     def __init__(
-        self, 
-        redis_host: str, 
+        self,
+        redis_host: str,
         redis_port: int,
         scan_tmp_dir: str = "/tmp/virusscan",
-        scan_file_threshold_mb: int = 10
+        scan_file_threshold_mb: int = 10,
     ):
-        self.redis_host = redis_host
-        self.redis_port = redis_port
-        self.scan_tmp_dir = scan_tmp_dir
+        super().__init__(
+            redis_host=redis_host, redis_port=redis_port, scan_tmp_dir=scan_tmp_dir
+        )
         self.scan_file_threshold_mb = scan_file_threshold_mb
