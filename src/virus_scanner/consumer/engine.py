@@ -2,7 +2,7 @@ import logging
 import socket
 import struct
 
-from .providers import DataProvider
+from ..common.providers import DataProvider
 
 
 class ScannerEngine:

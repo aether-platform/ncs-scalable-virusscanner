@@ -9,6 +9,7 @@ from ..common.providers import (
 from .coordinator import ClusterCoordinator
 from .engine import ScannerEngine
 from .handler import VirusScanHandler
+from .service import ScannerTaskService
 from .settings import Settings
 
 
@@ -47,11 +48,18 @@ class Container(containers.DeclarativeContainer):
         ClusterCoordinator, redis_client=redis_client, clamd_url=config.clamd_url
     )
 
+    task_service = providers.Singleton(
+        ScannerTaskService,
+        redis_client=redis_client,
+        settings=settings,
+        engine=engine,
+        provider_factory=data_provider,
+    )
+
     handler = providers.Singleton(
         VirusScanHandler,
         redis_client=redis_client,
         settings=settings,
-        engine=engine,
         coordinator=coordinator,
-        provider_factory=data_provider,
+        task_service=task_service,
     )

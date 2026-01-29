@@ -62,34 +62,14 @@ class ClusterCoordinator:
 
                 if active_nodes == 1 and deployment_name:
                     self.logger.info(
-                        "Single node detected. Requesting Surge (Scale-up)."
+                        "Single node detected. Requesting Surge (Scale-up) and returning to process tasks."
                     )
                     # Request scale-up to 2 via Redis list for KEDA
-                    # We clear the list first to avoid double requests
                     self.redis.delete("clamav:scaling_request")
                     self.redis.lpush("clamav:scaling_request", "surge", "surge")
 
-                    # Release lock and wait for the second node to appear
-                    self.redis.delete(lock_key)
-                    self.logger.info(
-                        "Released lock while waiting for surge infrastructure..."
-                    )
-
-                    start_wait = time.time()
-                    while self._get_active_node_count() < 2:
-                        if time.time() - start_wait > 300:
-                            break
-                        time.sleep(10)
-                        self.heartbeat()
-
-                    # Re-acquire lock to finish the job
-                    if not self.redis.set(
-                        lock_key, self.pod_name, ex=lock_ttl, nx=True
-                    ):
-                        self.logger.info(
-                            "Another node took the update slot after surge. Relinquishing."
-                        )
-                        return
+                    # The 'finally' block will ensure lock release
+                    return
 
                 # Trigger ClamAV Reload
                 self._trigger_reload()
