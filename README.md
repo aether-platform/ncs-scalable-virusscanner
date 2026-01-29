@@ -138,30 +138,40 @@ virus-scanner-producer
 
 ## Testing
 
-テストは境界ごとに分離されています：
+テストスイートは、実行環境と依存関係に基づいて大きく2つに分類されています。
 
-```
-tests/
-├── from_redis/        # Producer境界テスト（Redisから投入）
-│   └── test_injection.py
-└── from_consumer/     # Consumer境界テスト（Consumer内部）
-```
+### 1. Local Tests (`tests/local/`)
 
-### Producer Boundary Tests (from_redis)
-
-Redis経由でタスクを投入し、end-to-endの動作を検証：
+外部サービス（Redis/ClamAV）を必要とせず、モックを使用して実行できる単体テストです。
+主に開発中のロジック検証に使用します。
 
 ```bash
-# Docker Composeで全サービス起動
-docker-compose up -d
-
-# テスト実行
-python tests/from_redis/test_injection.py
+# 実行例
+pytest tests/local/from_consumer/test_handler.py
 ```
 
-### Consumer Boundary Tests (from_consumer)
+### 2. Integrated Tests (`tests/integrated/`)
 
-Consumer内部のロジックを単体テスト（準備中）。
+Docker環境（Redis, Producer, Consumer, ClamAV）が起動していることを前提とした境界・結合テストです。
+`localhost` 経由で実際の通信を検証します。
+
+#### Producer Boundary Test
+
+EnvoyからのgRPCリクエストをシミュレートします。
+
+```bash
+# 実行例
+python tests/integrated/test_producer.py
+```
+
+#### Consumer Boundary Test (E2E)
+
+Redisに直接タスクを投入し、処理フロー全体を検証します。
+
+```bash
+# 実行例
+python tests/integrated/from_redis/test_injection.py
+```
 
 ## References
 

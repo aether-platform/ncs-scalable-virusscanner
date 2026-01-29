@@ -19,9 +19,10 @@ producer = [
     "grpcio>=1.60.0",
     "grpcio-tools>=1.60.0",
     "dependency-injector>=4.48.3",
+    "googleapis-common-protos>=1.62.0",
 ]
 all = [
-    "virus-scanner[consumer,producer]",
+    "virus-scanner-image[consumer,producer]",
 ]
 
 [project.scripts]

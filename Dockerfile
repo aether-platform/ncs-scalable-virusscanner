@@ -29,5 +29,4 @@ RUN mkdir -p /tmp/virusscan && chmod 777 /tmp/virusscan
 EXPOSE 50051 8080
 
 # Default: Run Consumer (Handler)
-# For Producer: docker run <image> python -m virus_scanner.producer.main
-CMD ["virus-scanner-handler", "--redis-host", "localhost", "--redis-port", "6379", "--clamd-url", "tcp://127.0.0.1:3310"]
+CMD ["virus-scanner-handler"]

@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+Env/
+env/
+.env
+.pytest_cache/
+.coverage
+
+# Dependencies
+node_modules/
+.uv/
+
+# Project specific
+protos/
+test-data/
+src/virus_scanner/producer/envoy/
+src/virus_scanner/producer/udpa/
+src/virus_scanner/producer/xds/
+src/virus_scanner/producer/validate/
+src/virus_scanner/producer/*_pb2.py
+src/virus_scanner/producer/*_pb2_grpc.py
+
+# Docker
+.docker/
