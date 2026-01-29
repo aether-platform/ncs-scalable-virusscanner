@@ -14,6 +14,7 @@ consumer = [
     "click>=8.3.1",
     "dependency-injector>=4.48.3",
     "psutil>=5.9.0",  # Memory monitoring
+    "kubernetes>=31.0.0", # K8s API client
 ]
 producer = [
     "grpcio>=1.60.0",
@@ -28,6 +29,8 @@ all = [
 [project.scripts]
 virus-scanner-handler = "virus_scanner.consumer.main:main"
 virus-scanner-producer = "virus_scanner.producer.main:serve"
+virus-scanner-restart = "virus_scanner.consumer.main:rollout_restart"
+virus-scanner-update = "virus_scanner.consumer.main:set_target_epoch"
 
 [build-system]
 requires = ["hatchling"]

@@ -1,0 +1,50 @@
+---
+apiVersion: {{ include "common.capabilities.cronjob.apiVersion" . }}
+kind: CronJob
+metadata:
+  name: {{ include "common.names.fullname" . }}
+  labels: {{ include "common.labels.standard" . | nindent 4 }}
+spec:
+  schedule: {{ default (printf "1%s 2 * * *" (randNumeric 1)) .Values.kubectl.schedule | quote }}
+  timeZone: {{ .Values.global.timezone | quote }}
+  concurrencyPolicy: Forbid
+  suspend: false
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      parallelism: 1
+      completions: 1
+      ttlSecondsAfterFinished: 600
+      template:
+        metadata:
+          labels: {{ include "common.labels.standard" . | nindent 12 }}
+            app.kubernetes.io/component: cron
+        spec:
+          restartPolicy: Never
+          terminationGracePeriodSeconds: 5
+          {{- if .Values.serviceAccount.create }}
+          serviceAccountName: {{ include "common.names.fullname" . }}
+          {{- end }}
+          {{- with .Values.kubectl.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+          - name: {{ printf "%s-cron" .Chart.Name | quote }}
+            image: {{ include "common.images.image" ( dict "imageRoot" .Values.kubectl.image "global" .Values.global ) }}
+            imagePullPolicy: {{ .Values.kubectl.image.pullPolicy }}
+            command: ["kubectl"]
+            args: ["rollout", "restart", {{ printf "deployment/%s" (include "common.names.fullname" .) | quote }}]
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}

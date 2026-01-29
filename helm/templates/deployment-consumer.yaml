@@ -1,0 +1,105 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "shared-clamav.fullname" . }}-consumer
+  labels:
+    {{- include "shared-clamav.labels" . | nindent 4 }}
+    app.kubernetes.io/component: consumer
+spec:
+  # KEDA will control replicas, but we set a default
+  replicas: {{ .Values.autoscaling.minReplicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "shared-clamav.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: consumer
+  template:
+    metadata:
+      labels:
+        {{- include "shared-clamav.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: consumer
+    spec:
+      securityContext:
+        fsGroup: 100 # ClamAV standard GID/UID
+      containers:
+        - name: scanner
+          image: "{{ .Values.image.consumer.repository }}:{{ .Values.image.consumer.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: REDIS_HOST
+              value: "{{ .Values.autoscaling.redis.host }}"
+            - name: REDIS_PORT
+              value: "{{ .Values.autoscaling.redis.port }}"
+            - name: CLAMD_HOST
+              value: "127.0.0.1"
+            - name: CLAMD_PORT
+              value: "3310"
+            - name: DEPLOYMENT_NAME
+              value: "{{ include "shared-clamav.fullname" . }}-consumer"
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: MIN_FREE_MEMORY_MB
+              value: "{{ .Values.config.minFreeMemoryMb }}"
+          volumeMounts:
+            - name: scan-data
+              mountPath: /tmp/virusscan
+              readOnly: true
+        
+        - name: clamav
+          image: "{{ .Values.image.clamav.repository }}:{{ .Values.image.clamav.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: clamd
+              containerPort: 3310
+              protocol: TCP
+          volumeMounts:
+            - name: clamav-config
+              mountPath: /etc/clamav/clamd.conf
+              subPath: clamd.conf
+            - name: virus-db
+              mountPath: /var/lib/clamav
+            - name: clamav-logs
+              mountPath: /var/log/clamav
+          livenessProbe:
+            tcpSocket:
+              port: 3310
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 3310
+            initialDelaySeconds: 45
+            periodSeconds: 5
+        
+        - name: freshclam
+          image: "{{ .Values.image.clamav.repository }}:{{ .Values.image.clamav.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              freshclam -d --config-file=/etc/clamav/freshclam.conf
+          volumeMounts:
+            - name: clamav-config
+              mountPath: /etc/clamav/freshclam.conf
+              subPath: freshclam.conf
+            - name: virus-db
+              mountPath: /var/lib/clamav
+            - name: clamav-logs
+              mountPath: /var/log/clamav
+      volumes:
+        - name: scan-data
+          persistentVolumeClaim:
+            claimName: {{ .Values.storage.pvc.name }}
+        - name: clamav-config
+          configMap:
+            name: {{ include "shared-clamav.fullname" . }}-clamav-config
+        - name: virus-db
+          emptyDir: {}
+        - name: clamav-logs
+          emptyDir: {}

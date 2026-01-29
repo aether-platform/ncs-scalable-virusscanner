@@ -1,0 +1,58 @@
+# Default values for shared-clamav.
+
+image:
+  pullPolicy: IfNotPresent
+  # Overwrite these in your values-prod.yaml
+  consumer:
+    repository: shared-clamav-consumer
+    tag: latest
+  producer:
+    repository: shared-clamav-producer
+    tag: latest
+  clamav:
+    repository: clamav/clamav
+    tag: latest
+
+redis:
+  enabled: true
+  auth:
+    enabled: false # Experiment/Internal use only. Enable for prod.
+  master:
+    persistence:
+      enabled: false # Ephemeral queue for now
+  metrics:
+    enabled: true # Enable redis-exporter
+
+storage:
+  pvc:
+    name: shared-virusscan-pvc
+    size: 10Gi
+    # IMPORTANT: Must support ReadWriteMany (RWX)
+    # storageClass: "nfs-client"
+    storageClass: "" # Leave empty to use default, but ensure it supports RWX or manual binding
+    accessMode: ReadWriteMany
+
+service:
+  # Bridge is external
+  metricsPort: 8080
+  producer:
+    grpcPort: 50051
+    metricsPort: 8080
+
+config:
+  scanFileThresholdMb: 10
+  minFreeMemoryMb: 500
+
+clamav:
+  freshclam:
+    checksPerDay: 12 # Update virus definitions 12 times per day
+
+autoscaling:
+  enabled: true
+  minReplicas: 0
+  maxReplicas: 10
+  # KEDA triggers
+  redis:
+    host: "{{ .Release.Name }}-redis-master"
+    port: 6379
+    listLength: 5 # Target backlog per replica

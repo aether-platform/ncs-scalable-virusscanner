@@ -1,0 +1,63 @@
+include:
+- component: gitlab.com/xrow-public/ci-tools/common@main
+- component: gitlab.com/xrow-public/ci-tools/semantic-release@main
+# Scan just in case, you never know
+- component: gitlab.com/xrow-public/ci-tools/trivy@main
+  inputs:
+    path: .
+- component: gitlab.com/xrow-public/ci-tools/helm@main
+  inputs:
+    name: clamav
+- component: gitlab.com/xrow-public/ci-tools/container@main
+  inputs:
+    path: container/clamav
+    name: clamav
+- component: gitlab.com/xrow-public/ci-tools/container@main
+  inputs:
+    path: container/kubectl
+    name: kubectl
+- component: gitlab.com/xrow-public/ci-tools/s2i@main
+  inputs:
+    image: registry.redhat.io/ubi10/php-83:10.0-1754356872
+    path: container/test
+    name: test
+
+build:helm:clamav:
+  needs:
+  - job: "build:clamav"
+    artifacts: true
+  before_script: |
+    if [[ -f release/clamav/appversion ]]; then
+      export appversion=$(cat release/clamav/appversion)
+      sed -i "s/appVersion:.*/appVersion: $appversion/g" chart/Chart.yaml
+    fi
+
+update:database:
+  stage: test
+  image: $CI_IMAGE_PODMAN
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "schedule"
+      when: always
+    - when: never
+  script:
+    - |
+      export CI_DEBUG_TRACE="true"
+      source <(curl -s https://$CI_SERVER_HOST/xrow-public/ci-tools/-/raw/main/scripts/library.sh)
+      ci_ssh_init
+      version=$(ci_git_last_tag)
+      podman pull registry.gitlab.com/xrow-public/helm-clamav/clamav:$version || ci_git_empty_commit "fix(database): Automatic database update"
+      if [[ "$(podman run -i registry.gitlab.com/xrow-public/helm-clamav/clamav:$version bash -c 'freshclam | wc -l')" -gt "5" ]]; then
+        ci_git_empty_commit "fix(database): Automatic database update"
+        echo "Outdated virus database triggered an update"
+      fi
+      echo "Virus database is up to date"
+
+workflow:
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "schedule"
+      auto_cancel:
+        on_new_commit: none
+        on_job_failure: all
+    - if: $CI_MERGE_REQUEST_IID
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

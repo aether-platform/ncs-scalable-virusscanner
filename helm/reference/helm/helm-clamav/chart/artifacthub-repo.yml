@@ -1,0 +1,7 @@
+# https://github.com/artifacthub/hub/blob/master/docs/metadata/artifacthub-repo.yml
+# https://artifacthub.io/docs/topics/repositories/#oci-experimental-support
+
+repositoryID: 6c571d41-47e7-4e02-b042-cfe429f2c0c9
+owners:
+  - name: xrow
+    email: bjoern@xrow.de

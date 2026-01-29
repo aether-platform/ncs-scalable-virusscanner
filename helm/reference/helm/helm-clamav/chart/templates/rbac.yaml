@@ -1,0 +1,23 @@
+---
+kind: Role
+apiVersion: {{ include "common.capabilities.rbac.apiVersion" . }}
+metadata:
+  name: {{ include "common.names.fullname" . }}
+  labels: {{ include "common.labels.standard" . | nindent 4 }}
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs:
+    - get
+    - list
+    - create
+    - watch
+    - update
+    - delete
+    - patch
+- apiGroups: [""]
+  resources: ["pods", "pods/log"]
+  verbs:
+    - get
+    - list
+    - watch

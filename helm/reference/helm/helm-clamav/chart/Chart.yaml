@@ -1,0 +1,60 @@
+apiVersion: v2
+name: clamav
+description: A Helm chart for clamav
+
+# A chart can be either an 'application' or a 'library' chart.
+#
+# Application charts are a collection of templates that can be packaged into versioned archives
+# to be deployed.
+#
+# Library charts provide useful utilities or functions for the chart developer. They're included as
+# a dependency of application charts to inject those utilities and functions into the rendering
+# pipeline. Library charts do not define any templates and therefore cannot be deployed.
+type: application
+
+# This is the chart version. This version number should be incremented each time you make changes
+# to the chart and its templates, including the app version.
+# Versions are expected to follow Semantic Versioning (https://semver.org/)
+version: 0.0.0
+
+# This is the version number of the application being deployed. This version number should be
+# incremented each time you make changes to the application. Versions are not expected to
+# follow Semantic Versioning. They should reflect the version the application is using.
+# It is recommended to use it with quotes.
+appVersion: "1.0.0"
+
+dependencies:
+  - name: common
+    version: '2.31.4'
+    repository: https://charts.bitnami.com/bitnami
+
+
+icon: https://raw.githubusercontent.com/Cisco-Talos/clamav/c81968d3a7c16be0be4cb4f79a7dedfd90d8ae1d/logo.png
+keywords:
+  - virus
+  - virus database
+  - scanner
+  - virus scanner
+  - security
+home: https://gitlab.com/xrow-public/helm-clamav
+sources:
+  - https://gitlab.com/xrow-public/helm-clamav
+maintainers:
+  - name: Björn Dieding
+    email: bjoern+whitelist@xrow.de
+
+annotations:
+  artifacthub.io/category: security
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/containsSecurityUpdates: "true"
+
+artifacthub.io/links: |
+  - name: source
+    url: https://gitlab.com/xrow-public/helm-clamav
+  - name: support
+    url: https://gitlab.com/xrow-public/helm-clamav
+  - name: xrow GmbH
+    url: https://www.xrow.de
+  - name: ClamAV
+    url: https://www.clamav.net

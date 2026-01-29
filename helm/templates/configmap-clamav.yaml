@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "shared-clamav.fullname" . }}-clamav-config
+  labels:
+    {{- include "shared-clamav.labels" . | nindent 4 }}
+data:
+  clamd.conf: |
+    LogVerbose yes
+    LogSyslog no
+    LogFile /var/log/clamav/clamd.log
+    LogTime yes
+    PidFile /run/clamav/clamd.pid
+    DatabaseDirectory /var/lib/clamav
+    LocalSocket /run/clamav/clamd.sock
+    TCPSocket 3310
+    TCPAddr 0.0.0.0
+    MaxThreads 12
+    MaxConnectionQueueLength 15
+    StreamMaxLength {{ .Values.config.scanFileThresholdMb }}M
+    
+  freshclam.conf: |
+    DatabaseDirectory /var/lib/clamav
+    UpdateLogFile /var/log/clamav/freshclam.log
+    LogVerbose yes
+    LogSyslog no
+    LogTime yes
+    PidFile /run/clamav/freshclam.pid
+    DatabaseMirror database.clamav.net
+    Checks {{ .Values.clamav.freshclam.checksPerDay }}
+    MaxAttempts 5

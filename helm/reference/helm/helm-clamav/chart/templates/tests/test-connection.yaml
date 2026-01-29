@@ -1,0 +1,48 @@
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ printf "%s-test-connection" (include "common.names.fullname" .) | trunc 63 | trimSuffix "-" }}
+  labels: {{ include "common.labels.standard" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  {{- if .Values.serviceAccount.create }}
+  serviceAccountName: {{ include "common.names.fullname" . }}
+  {{- end }}
+  {{- with .Values.imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  initContainers:
+  - name: wait-services
+    image: registry.gitlab.com/xrow-public/ci-tools/kubectl:latest
+    imagePullPolicy: IfNotPresent
+    command: ["/bin/sh","-c"]
+    args:
+    - |
+      (
+        echo "Waiting 10 sec";
+        sleep 10;
+        echo "Waiting for clamav";
+        kubectl wait pods --for=condition=Ready --timeout=120s -l app.kubernetes.io/name={{ include "common.names.name" . }},app.kubernetes.io/component=server;
+        echo "done"
+      )
+  containers:
+    - name: php
+      image: {{ include "common.images.image" ( dict "imageRoot" .Values.test.image "global" .Values.global ) }}
+      command: [ "/usr/bin/env" ]
+      args: [ "php", "-d", "memory_limit=-1", "test.php", "{{ include "common.names.fullname" . }}" ]
+  restartPolicy: Never
+  {{- with .Values.nodeSelector }}
+  nodeSelector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.affinity }}
+  affinity:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.tolerations }}
+  tolerations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}

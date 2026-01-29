@@ -1,0 +1,74 @@
+{
+    "_readme": [
+        "This file locks the dependencies of your project to a known state",
+        "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
+        "This file is @generated automatically"
+    ],
+    "content-hash": "f7c1045aa644374b16ccda2d57e5fb62",
+    "packages": [
+        {
+            "name": "appwrite/php-clamav",
+            "version": "dev-fix-26-submit-a-pull-request-to-fix-fileScanInStream",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/vagiguere/php-clamav.git",
+                "reference": "ef971c2e6b98098a54e8ad84411c5a7525be743d"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/vagiguere/php-clamav/zipball/ef971c2e6b98098a54e8ad84411c5a7525be743d",
+                "reference": "ef971c2e6b98098a54e8ad84411c5a7525be743d",
+                "shasum": ""
+            },
+            "require": {
+                "ext-sockets": "*",
+                "php": ">=8.0"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^9"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Appwrite\\ClamAV\\": "src/ClamAV"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Appwrite\\ClamAV\\Tests\\": "tests/ClamAV"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Eldad Fux",
+                    "email": "eldad@appwrite.io"
+                }
+            ],
+            "description": "ClamAV network and pipe client for PHP",
+            "keywords": [
+                "anti virus",
+                "appwrite",
+                "clamav",
+                "php"
+            ],
+            "support": {
+                "source": "https://github.com/vagiguere/php-clamav/tree/fix-26-submit-a-pull-request-to-fix-fileScanInStream"
+            },
+            "time": "2024-07-25T14:15:36+00:00"
+        }
+    ],
+    "packages-dev": [],
+    "aliases": [],
+    "minimum-stability": "stable",
+    "stability-flags": {
+        "appwrite/php-clamav": 20
+    },
+    "prefer-stable": false,
+    "prefer-lowest": false,
+    "platform": [],
+    "platform-dev": [],
+    "plugin-api-version": "2.6.0"
+}

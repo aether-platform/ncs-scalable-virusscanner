@@ -1,4 +1,14 @@
-FROM python:3.11-slim
+FROM ubuntu:24.04
+
+# Install Python and dependencies
+RUN apt-get update && apt-get install -y \
+    python3.12 \
+    python3-pip \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set python3.12 as default python
+RUN ln -s /usr/bin/python3.12 /usr/bin/python
 
 WORKDIR /app
 
@@ -15,7 +25,7 @@ COPY src/ src/
 # Install flavor (consumer, producer, or all)
 # Build with: docker build --build-arg FLAVOR=consumer .
 ARG FLAVOR=all
-RUN uv pip install --system ".[$FLAVOR]"
+RUN uv pip install --system --break-system-packages ".[$FLAVOR]"
 
 ENV PYTHONPATH=/app/src
 ENV PYTHONUNBUFFERED=1

@@ -1,0 +1,29 @@
+{{- if .Values.autoscaling.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "shared-clamav.fullname" . }}-consumer-scaler
+  labels:
+    {{- include "shared-clamav.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: {{ include "shared-clamav.fullname" . }}-consumer
+  minReplicaCount: {{ .Values.autoscaling.minReplicas }}
+  maxReplicaCount: {{ .Values.autoscaling.maxReplicas }}
+  triggers:
+    - type: redis
+      metadata:
+        address: "{{ .Values.autoscaling.redis.host }}:{{ .Values.autoscaling.redis.port }}"
+        listName: scan_priority
+        listLength: "{{ .Values.autoscaling.redis.listLength }}"
+    - type: redis
+      metadata:
+        address: "{{ .Values.autoscaling.redis.host }}:{{ .Values.autoscaling.redis.port }}"
+        listName: scan_normal
+        listLength: "{{ .Values.autoscaling.redis.listLength }}"
+    - type: redis
+      metadata:
+        address: "{{ .Values.autoscaling.redis.host }}:{{ .Values.autoscaling.redis.port }}"
+        listName: clamav:scaling_request
+        listLength: "1"
+{{- end }}

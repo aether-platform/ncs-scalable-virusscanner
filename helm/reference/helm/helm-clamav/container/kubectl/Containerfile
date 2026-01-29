@@ -1,0 +1,10 @@
+FROM registry.access.redhat.com/ubi10/ubi-minimal:10.0-1758699349
+
+RUN URL="https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && \
+    curl -sSL "$URL" -o kubectl && \
+    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl.sha256" && \
+    echo "$(cat kubectl.sha256) kubectl" | sha256sum --check && \
+    mv kubectl /usr/local/bin/kubectl && \
+    chmod 755 /usr/local/bin/kubectl
+
+CMD /usr/local/bin/kubectl

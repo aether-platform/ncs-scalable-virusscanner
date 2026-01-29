@@ -1,0 +1,3 @@
+[submodule "reference/helm/helm-clamav"]
+	path = reference/helm/helm-clamav
+	url = https://gitlab.com/xrow-public/helm-clamav.git

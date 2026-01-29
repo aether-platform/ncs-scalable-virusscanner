@@ -1,0 +1,421 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "ClamAV Helm Chart Values Schema",
+  "description": "Schema for validating values.yaml configuration for the ClamAV Helm chart",
+  "type": "object",
+  "properties": {
+    "replicaCount": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Number of replicas to deploy"
+    },
+    "image": {
+      "type": "object",
+      "properties": {
+        "registry": {
+          "type": "string",
+          "description": "Container image registry"
+        },
+        "repository": {
+          "type": "string",
+          "description": "Container image repository"
+        },
+        "pullPolicy": {
+          "type": "string",
+          "enum": ["Always", "IfNotPresent", "Never"],
+          "description": "Image pull policy"
+        },
+        "tag": {
+          "type": "string",
+          "description": "Container image tag"
+        }
+      },
+      "required": ["repository", "pullPolicy", "tag"],
+      "additionalProperties": false
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": ["name"],
+        "additionalProperties": false
+      },
+      "description": "List of image pull secrets"
+    },
+    "nameOverride": {
+      "type": "string",
+      "description": "Override the name of the chart"
+    },
+    "fullnameOverride": {
+      "type": "string",
+      "description": "Override the full name of the resources"
+    },
+    "settings": {
+      "type": "object",
+      "properties": {
+        "debug": {
+          "type": ["string", "boolean"],
+          "description": "Enable debug mode"
+        }
+      },
+      "additionalProperties": false
+    },
+    "kubectl": {
+      "type": "object",
+      "properties": {
+        "image": {
+          "type": "object",
+          "properties": {
+            "registry": {
+              "type": "string",
+              "description": "Container image registry"
+            },
+            "repository": {
+              "type": "string",
+              "description": "kubectl container image repository"
+            },
+            "pullPolicy": {
+              "type": "string",
+              "enum": ["Always", "IfNotPresent", "Never"],
+              "description": "kubectl image pull policy"
+            },
+            "tag": {
+              "type": "string",
+              "description": "kubectl container image tag"
+            }
+          },
+          "required": ["repository", "pullPolicy", "tag"],
+          "additionalProperties": false
+        },
+        "imagePullSecrets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": ["name"],
+            "additionalProperties": false
+          },
+          "description": "List of image pull secrets for kubectl"
+        },
+        "schedule": {
+          "type": "string",
+          "description": "The schedule in Cron format"
+        }
+      },
+      "additionalProperties": false
+    },
+    "test": {
+      "type": "object",
+      "properties": {
+        "image": {
+          "type": "object",
+          "properties": {
+            "registry": {
+              "type": "string",
+              "description": "Container image registry"
+            },
+            "repository": {
+              "type": "string",
+              "description": "Test container image repository"
+            },
+            "pullPolicy": {
+              "type": "string",
+              "enum": ["Always", "IfNotPresent", "Never"],
+              "description": "Test image pull policy"
+            },
+            "tag": {
+              "type": "string",
+              "description": "Test container image tag"
+            }
+          },
+          "required": ["repository", "pullPolicy", "tag"],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "serviceAccount": {
+      "type": "object",
+      "properties": {
+        "create": {
+          "type": "boolean",
+          "description": "Specifies whether a service account should be created"
+        },
+        "automount": {
+          "type": "boolean",
+          "description": "Automatically mount a ServiceAccount's API credentials"
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Annotations to add to the service account"
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the service account to use"
+        }
+      },
+      "additionalProperties": false
+    },
+    "podLabels": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Labels to add to pods"
+    },
+    "podAnnotations": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Annotations to add to pods"
+    },
+    "podSecurityContext": {
+      "type": "object",
+      "description": "Security context for the pod",
+      "additionalProperties": true
+    },
+    "securityContext": {
+      "type": "object",
+      "properties": {
+        "runAsNonRoot": {
+          "type": "boolean",
+          "description": "Run container as non-root user"
+        },
+        "seccompProfile": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["RuntimeDefault", "Localhost", "Unconfined"]
+            }
+          },
+          "additionalProperties": false
+        },
+        "allowPrivilegeEscalation": {
+          "type": "boolean",
+          "description": "Allow privilege escalation"
+        },
+        "capabilities": {
+          "type": "object",
+          "properties": {
+            "drop": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "List of capabilities to drop"
+            },
+            "add": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "List of capabilities to add"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": true
+    },
+    "service": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["ClusterIP", "NodePort", "LoadBalancer", "ExternalName"],
+          "description": "Kubernetes service type"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "Service port"
+        },
+        "nodePort": {
+          "type": "integer",
+          "minimum": 30000,
+          "maximum": 32767,
+          "description": "NodePort value for Service."
+        }
+      },
+      "additionalProperties": false
+    },
+    "resources": {
+      "type": "object",
+      "properties": {
+        "limits": {
+          "type": "object",
+          "properties": {
+            "cpu": {
+              "type": "string",
+              "description": "CPU limit"
+            },
+            "memory": {
+              "type": "string",
+              "description": "Memory limit"
+            }
+          },
+          "additionalProperties": false
+        },
+        "requests": {
+          "type": "object",
+          "properties": {
+            "cpu": {
+              "type": "string",
+              "description": "CPU request"
+            },
+            "memory": {
+              "type": "string",
+              "description": "Memory request"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "livenessProbe": {
+      "type": "object",
+      "description": "Liveness probe configuration",
+      "additionalProperties": true
+    },
+    "readinessProbe": {
+      "type": "object",
+      "description": "Readiness probe configuration",
+      "additionalProperties": true
+    },
+    "startupProbe": {
+      "type": "object",
+      "description": "Startup probe configuration",
+      "additionalProperties": true
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable pod disruption budget"
+        },
+        "minAvailable": {
+          "type": ["integer", "string"],
+          "description": "Minimum available pods"
+        },
+        "maxUnavailable": {
+          "type": ["integer", "string"],
+          "description": "Maximum unavailable pods"
+        },
+        "unhealthyPodEvictionPolicy": {
+          "type": "string",
+          "description": "Defines the criteria for when unhealthy pods should be considered for eviction"
+        }
+      },
+      "additionalProperties": false
+    },
+    "autoscaling": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable horizontal pod autoscaling"
+        },
+        "minReplicas": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Minimum number of replicas"
+        },
+        "maxReplicas": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of replicas"
+        },
+        "targetCPUUtilizationPercentage": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Target CPU utilization percentage"
+        },
+        "targetMemoryUtilizationPercentage": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Target memory utilization percentage"
+        },
+        "behavior": {
+          "type": "object",
+          "description": "Optional HorizontalPodAutoscaler behavior configuration",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "volumes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "description": "Kubernetes volume definition"
+      },
+      "description": "Additional volumes for the deployment"
+    },
+    "volumeMounts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "description": "Kubernetes volume mount definition"
+      },
+      "description": "Additional volume mounts for the deployment"
+    },
+    "nodeSelector": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Node selector for pod assignment"
+    },
+    "tolerations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "description": "Kubernetes toleration definition"
+      },
+      "description": "Tolerations for pod assignment"
+    },
+    "affinity": {
+      "type": "object",
+      "description": "Affinity rules for pod assignment",
+      "additionalProperties": true
+    },
+    "topologySpreadConstraints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "description": "Kubernetes topology spread constraints definition"
+      },
+      "description": "Topology spread constraints for pod assignment"
+    },
+    "global": {
+      "type": "object",
+      "description": "Global values from Bitnami common chart",
+      "additionalProperties": true
+    },
+    "common": {
+      "type": "object",
+      "description": "Common values from Bitnami common chart",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

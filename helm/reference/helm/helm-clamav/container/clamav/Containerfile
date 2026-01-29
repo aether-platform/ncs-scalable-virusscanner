@@ -1,0 +1,44 @@
+# podman build -t clamav:latest .
+# podman run --network host --replace -it --name clamav -p 3310:3310 clamav:latest
+# podman exec -it clamav bash
+# echo 'PING' | nc 127.0.0.1 3310 | grep -i PONG
+
+FROM registry.access.redhat.com/ubi10/ubi-minimal:10.0-1758699349
+
+LABEL name="ubi10-clamav" \
+      vendor="Red Hat" \
+      version="${VERSION}" \
+      release="1" \
+      summary="UBI 10 ClamAV" \
+      description="ClamAV for UBI 10" \
+      maintainer="xrow GmbH"
+
+ENV TZ="Etc/UTC"
+
+# Install dependencies
+RUN rpm -ivh https://dl.fedoraproject.org/pub/epel/epel-release-latest-10.noarch.rpm && \
+    microdnf install -y clamav clamav-freshclam clamav-server nmap  && \
+    microdnf clean all && \
+    rm -rf /var/cache/*
+
+# Configure directories and permissions
+RUN mkdir -p /opt/app-root/src && \
+    chown -R 1001:0 /opt/app-root/src && \
+    chmod -R g+rwx /opt/app-root/src
+
+# Copy configurations to where clamav expects
+COPY config/clamd.conf /etc/clamd.d/scan.conf
+COPY config/freshclam.conf /etc/freshclam.conf
+
+# Record version
+RUN clamd --version | grep -Eo '[0-9]+(\.[0-9]+)+' > /opt/appversion && \
+    chmod g+w /opt/appversion
+
+USER 1001
+
+# Download initial virus definitions
+RUN freshclam --show-progress
+
+EXPOSE 3310
+
+CMD ["/usr/sbin/clamd", "--foreground"]

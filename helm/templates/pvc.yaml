@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.storage.pvc.name }}
+  labels:
+    {{- include "shared-clamav.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.storage.pvc.accessMode }}
+{{- if .Values.storage.pvc.storageClass }}
+  storageClassName: {{ .Values.storage.pvc.storageClass }}
+{{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.pvc.size }}

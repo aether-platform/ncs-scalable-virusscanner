@@ -1,0 +1,11 @@
+{
+    "repositories": [
+        {
+          "type": "vcs",
+          "url": "https://github.com/vagiguere/php-clamav.git"
+        }
+      ],
+    "require": {
+        "appwrite/php-clamav": "dev-fix-26-submit-a-pull-request-to-fix-fileScanInStream"
+    }
+}

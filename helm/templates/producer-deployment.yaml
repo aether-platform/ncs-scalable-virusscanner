@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "shared-clamav.fullname" . }}-producer
+  labels:
+    {{- include "shared-clamav.labels" . | nindent 4 }}
+    app.kubernetes.io/component: producer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "shared-clamav.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: producer
+  template:
+    metadata:
+      labels:
+        {{- include "shared-clamav.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: producer
+    spec:
+      containers:
+        - name: producer
+          image: "{{ .Values.image.producer.repository }}:{{ .Values.image.producer.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["virus-scanner-producer"]
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.service.producer.grpcPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.service.producer.metricsPort }}
+              protocol: TCP
+          env:
+            - name: REDIS_HOST
+              value: "{{ .Values.autoscaling.redis.host }}"
+            - name: REDIS_PORT
+              value: "{{ .Values.autoscaling.redis.port }}"
+            - name: SCAN_TMP_DIR
+              value: "/tmp/virusscan"
+            - name: SCAN_FILE_THRESHOLD_MB
+              value: "{{ .Values.config.scanFileThresholdMb }}"
+          volumeMounts:
+            - name: scan-data
+              mountPath: /tmp/virusscan
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: scan-data
+          persistentVolumeClaim:
+            claimName: {{ .Values.storage.pvc.name }}
