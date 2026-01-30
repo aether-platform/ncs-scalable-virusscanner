@@ -1,6 +1,5 @@
 .PHONY: release
 
 release:
-	@echo "Releasing nightly build..."
-	git tag -f nightly
-	git push -f origin nightly
+	@echo "Releasing nightly build to main..."
+	git push origin main

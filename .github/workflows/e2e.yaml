@@ -1,0 +1,60 @@
+name: Virus Scanner E2E Tests
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  e2e-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Start Services (Redis & ClamAV)
+        run: |
+          docker-compose up -d redis clamav
+          # Wait for ClamAV to be healthy
+          echo "Waiting for ClamAV to start..."
+          for i in {1..30}; do
+            if docker inspect --format='{{json .State.Health.Status}}' image-clamav-1 | grep -q '"healthy"'; then
+              echo "ClamAV is healthy!"
+              break
+            fi
+            echo "Still waiting... ($i/30)"
+            sleep 10
+          done
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run Unit Tests
+        run: uv run pytest tests/local/from_consumer/
+
+      - name: Run Consumer Handler in Background
+        run: |
+          export REDIS_HOST=localhost
+          export CLAMD_URL=tcp://localhost:3310
+          export SCAN_MOUNT=/tmp/virusscan
+          mkdir -p /tmp/virusscan
+          uv run virus-scanner-handler &
+          sleep 5 # Wait for handler to initialize
+
+      - name: Run Integrated E2E Test
+        run: |
+          export REDIS_HOST=localhost
+          export REDIS_PORT=6379
+          uv run python tests/integrated/from_redis/test_stream_scan.py
+
+      - name: Cleanup
+        if: always()
+        run: docker-compose down

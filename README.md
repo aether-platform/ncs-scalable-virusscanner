@@ -2,6 +2,22 @@
 
 Redis-based virus scanning service with Producer (Envoy ext_proc) and Consumer (ClamAV worker) components.
 
+## Design Philosophy: Flexibility First
+
+NCS (Network Connectivity Service) は、純粋なセキュリティツールである以上に、**「フレキシビリティ（柔軟性）」**を最優先の設計思想としています。
+
+- **デプロイの柔軟性**: Producer (Sidecar) と Consumer (Scalable Worker) を分離し、環境に応じて最適な構成を選択可能。
+- **データソースの柔軟性**: `DataProvider` 戦略により、ストリーム、ディスク、インラインなど多様なデータ供給元に対応。
+- **アーキテクチャの柔軟性**: 全てを `STREAM` プロトコルに統一。将来的に異なるスキャンエンジンや伝送方式への差し替えが容易。
+- **ハードウェアの柔軟性**: AMD64/ARM64 双方へのネイティブ対応により、コスト効率の高いインフラ（ARMなど）を自由に選択可能。
+
+## Core Capabilities (主要機能)
+
+NCS は、以下のコア機能を通じてセキュアで柔軟なネットワーク環境を提供します。
+
+- **インターネット接続の高度な制御**: Envoy Gateway との統合により、ポリシーに基づいたインターネット接続の可視化と制御（Egress コントロール）を実現します。
+- **統合型ウイルススキャン対策**: ストリームベースのスキャンエンジンにより、データ転送を妨げることなく、リアルタイムでウイルス検知・防御を実行します。
+
 ## Architecture Overview
 
 ```

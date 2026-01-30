@@ -255,12 +255,15 @@ class ProducerService:
             )
 
         # Start gRPC server
+        port = os.environ.get("PRODUCER_PORT", "50051")
         self.server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
         external_processor_pb2_grpc.add_ExternalProcessorServicer_to_server(
             ExternalProcessorServicer(self.container.scanner_service()), self.server
         )
-        self.server.add_insecure_port("[::]:50051")
-        logger.info("Starting Virus Scanner Producer (Envoy ext_proc) on port 50051...")
+        self.server.add_insecure_port(f"[::]:{port}")
+        logger.info(
+            f"Starting Virus Scanner Producer (Envoy ext_proc) on port {port}..."
+        )
         self.server.start()
 
         # Start metrics server

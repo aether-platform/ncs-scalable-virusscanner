@@ -26,7 +26,8 @@ def test_producer_priority_flow():
     4. Inject result into Redis
     5. Verify gRPC response
     """
-    channel = grpc.insecure_channel("localhost:50051")
+    port = os.environ.get("PRODUCER_PORT", "50051")
+    channel = grpc.insecure_channel(f"localhost:{port}")
     stub = external_processor_pb2_grpc.ExternalProcessorStub(channel)
 
     rdb = redis.Redis(host="localhost", port=6379, decode_responses=True)
@@ -47,7 +48,7 @@ def test_producer_priority_flow():
         # Step 2: Body
         body = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
         yield external_processor_pb2.ProcessingRequest(
-            request_body=external_processor_pb2.HttpBody(body=body)
+            request_body=external_processor_pb2.HttpBody(body=body, end_of_stream=True)
         )
 
     # 2. Execute gRPC call
@@ -72,7 +73,8 @@ def test_producer_priority_flow():
 
             # Inject result
             print(f"Injecting result for {task_id}")
-            rdb.lpush(f"result:{task_id}", "INFECTED")
+            result_json = '{"status": "INFECTED", "virus": "EICAR detected"}'
+            rdb.lpush(f"result:{task_id}", result_json)
             rdb.expire(f"result:{task_id}", 10)
         else:
             print("No task found in scan_priority")
