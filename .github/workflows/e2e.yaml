@@ -2,9 +2,9 @@ name: Virus Scanner E2E Tests
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   pull_request:
-    branches: [ main, master ]
+    branches: [main, master]
 
 jobs:
   e2e-tests:
@@ -22,7 +22,7 @@ jobs:
 
       - name: Start Services (Redis & ClamAV)
         run: |
-          docker-compose up -d redis clamav
+          docker compose up -d redis clamav
           # Wait for ClamAV to be healthy
           echo "Waiting for ClamAV to start..."
           for i in {1..30}; do
@@ -57,4 +57,4 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: docker-compose down
+        run: docker compose down

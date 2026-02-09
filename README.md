@@ -136,7 +136,7 @@ docker run \
 uv pip install -e '.[consumer]'
 
 # Run with Docker Compose
-docker-compose up
+docker compose up
 ```
 
 ### Producer

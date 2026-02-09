@@ -4,7 +4,8 @@ on:
   push:
     branches:
       - main
-      - 'release/*'
+      - master
+      - "release/*"
 
 env:
   REGISTRY: ghcr.io
@@ -38,8 +39,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.flavor }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
+            type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
             type=ref,event=branch,enable=${{ startsWith(github.ref, 'refs/heads/release/') }}
             type=sha,format=short
 
