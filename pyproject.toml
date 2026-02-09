@@ -5,13 +5,13 @@ description = "NCS Virus Scanner Request Handler"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "redis>=7.1.0",  # Common dependency
+    "redis>=7.1.0",
+    "click>=8.3.1",
 ]
 
 [project.optional-dependencies]
 consumer = [
     "clamd>=1.0.2",
-    "click>=8.3.1",
     "dependency-injector>=4.48.3",
     "psutil>=5.9.0",  # Memory monitoring
     "kubernetes>=31.0.0", # K8s API client
@@ -21,6 +21,7 @@ producer = [
     "grpcio-tools>=1.60.0",
     "dependency-injector>=4.48.3",
     "googleapis-common-protos>=1.62.0",
+    "flagsmith>=3.3.0",
 ]
 all = [
     "virus-scanner-image[consumer,producer]",

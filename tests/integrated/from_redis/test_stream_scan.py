@@ -52,9 +52,7 @@ def test_stream_scan_integrated():
     print(f"Waiting for result on {result_key} (timeout=10s)...")
     res = r.brpop(result_key, timeout=10)
 
-    if not res:
-        print("FAILED: Timeout waiting for result. Is the consumer running?")
-        return
+    assert res, "Timeout waiting for result. Is the consumer running?"
 
     _, result_json = res
     result = json.loads(result_json.decode("utf-8"))
@@ -64,13 +62,13 @@ def test_stream_scan_integrated():
     print(json.dumps(result, indent=2))
     print("-" * 30)
 
-    if (
-        result.get("status") == "INFECTED"
-        and "EICAR" in result.get("virus", "").upper()
-    ):
-        print("SUCCESS: Virus correctly detected in STREAM mode!")
-    else:
-        print(f"FAILED: Unexpected result status: {result.get('status')}")
+    assert result.get("status") == "INFECTED", (
+        f"Unexpected result status: {result.get('status')}"
+    )
+    assert "EICAR" in result.get("virus", "").upper(), (
+        f"Unexpected virus name: {result.get('virus')}"
+    )
+    print("SUCCESS: Virus correctly detected in STREAM mode!")
 
 
 if __name__ == "__main__":

@@ -563,13 +563,13 @@ name = "virus-scanner-image"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "click" },
     { name = "redis" },
 ]
 
 [package.optional-dependencies]
 all = [
     { name = "clamd" },
-    { name = "click" },
     { name = "dependency-injector" },
     { name = "googleapis-common-protos" },
     { name = "grpcio" },
@@ -579,7 +579,6 @@ all = [
 ]
 consumer = [
     { name = "clamd" },
-    { name = "click" },
     { name = "dependency-injector" },
     { name = "kubernetes" },
     { name = "psutil" },
@@ -600,7 +599,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "clamd", marker = "extra == 'consumer'", specifier = ">=1.0.2" },
-    { name = "click", marker = "extra == 'consumer'", specifier = ">=8.3.1" },
+    { name = "click", specifier = ">=8.3.1" },
     { name = "dependency-injector", marker = "extra == 'consumer'", specifier = ">=4.48.3" },
     { name = "dependency-injector", marker = "extra == 'producer'", specifier = ">=4.48.3" },
     { name = "googleapis-common-protos", marker = "extra == 'producer'", specifier = ">=1.62.0" },

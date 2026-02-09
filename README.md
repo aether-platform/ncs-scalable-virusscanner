@@ -75,8 +75,8 @@ RedisキューからウイルススキャンタスクをPopし、Pod内のClamAV
 
 ```toml
 [project.optional-dependencies]
-consumer = ["clamd", "click", "dependency-injector"]
-producer = ["grpcio", "grpcio-tools"]
+consumer = ["clamd", "dependency-injector", "psutil", "kubernetes"]
+producer = ["grpcio", "grpcio-tools", "dependency-injector"]
 all = ["virus-scanner[consumer,producer]"]
 ```
 
@@ -154,40 +154,41 @@ virus-scanner-producer
 
 ## Testing
 
-テストスイートは、実行環境と依存関係に基づいて大きく2つに分類されています。
+### Unified Test Scenarios
 
-### 1. Local Tests (`tests/local/`)
+We provide two standardized scenarios for integration testing:
 
-外部サービス（Redis/ClamAV）を必要とせず、モックを使用して実行できる単体テストです。
-主に開発中のロジック検証に使用します。
+#### A. Host-based Local Testing (`test-local`)
 
-```bash
-# 実行例
-pytest tests/local/from_consumer/test_handler.py
-```
-
-### 2. Integrated Tests (`tests/integrated/`)
-
-Docker環境（Redis, Producer, Consumer, ClamAV）が起動していることを前提とした境界・結合テストです。
-`localhost` 経由で実際の通信を検証します。
-
-#### Producer Boundary Test
-
-EnvoyからのgRPCリクエストをシミュレートします。
+Requires Redis and ClamAV (clamd) to be running on the host (e.g., via Docker). Components run directly via `uv run`.
 
 ```bash
-# 実行例
-python tests/integrated/test_producer.py
+# Ensure infrastructure is up
+docker compose up -d redis clamav
+
+# Run tests
+make test-local
 ```
 
-#### Consumer Boundary Test (E2E)
+#### B. Container-based Full Stack Testing (`test-docker`)
 
-Redisに直接タスクを投入し、処理フロー全体を検証します。
+Runs everything inside Docker containers, mimicking the production environment.
 
 ```bash
-# 実行例
-python tests/integrated/from_redis/test_injection.py
+make test-docker
 ```
+
+## Environment Variables
+
+All components leverage Click's native environment variable handling.
+
+| Variable        | Default                | Description                    |
+| :-------------- | :--------------------- | :----------------------------- |
+| `REDIS_HOST`    | `localhost`            | Redis server address           |
+| `REDIS_PORT`    | `6379`                 | Redis server port              |
+| `CLAMD_URL`     | `tcp://127.0.0.1:3310` | ClamAV daemon connection URL   |
+| `SCAN_MOUNT`    | `/tmp/virusscan`       | Host path for file-based scans |
+| `PRODUCER_PORT` | `50051`                | Producer gRPC server port      |
 
 ## References
 

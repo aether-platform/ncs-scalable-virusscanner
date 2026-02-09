@@ -10,13 +10,18 @@ Based on experiment/ncs-envoy-clamav/python/bridge.py
 import json
 import logging
 import os
+import signal
 import sys
 import threading
+import time
 from concurrent import futures
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import Optional
 
+import click
 import grpc
 import redis
+from flagsmith import Flagsmith
 
 from .containers import ProducerContainer
 from .service import StreamScannerService
@@ -124,9 +129,37 @@ class ExternalProcessorServicer(external_processor_pb2_grpc.ExternalProcessorSer
 
     def __init__(self, scanner_service: StreamScannerService):
         self.scanner = scanner_service
+        self.tenant_id = os.getenv("TENANT_ID")
+        self.flagsmith_key = os.getenv("FLAGSMITH_ENVIRONMENT_KEY")
+        
+        if self.flagsmith_key:
+            self.flagsmith = Flagsmith(environment_key=self.flagsmith_key)
+            logger.info(f"Flagsmith initialized for dynamic priority checking (Tenant: {self.tenant_id})")
+        else:
+            self.flagsmith = None
+            logger.warning("FLAGSMITH_ENVIRONMENT_KEY not set. Dynamic priority checking disabled.")
+
+    def _is_priority_enabled(self) -> bool:
+        """
+        Checks Flagsmith for the current tenant's priority status.
+        Flagsmith SDK handles caching internally.
+        """
+        # Fallback to header-only if Flagsmith or Tenant ID is missing
+        if not self.flagsmith or not self.tenant_id:
+            return False
+            
+        try:
+            # Note: We can add identity traits here if needed (e.g. plan_type)
+            # but usually flags are calculated on Flagsmith side based on pre-synced traits
+            identity_flags = self.flagsmith.get_identity_flags(identifier=self.tenant_id)
+            return identity_flags.is_feature_enabled("enable_virus_scan_priority")
+        except Exception as e:
+            logger.error(f"Failed to fetch flags for tenant {self.tenant_id}: {e}")
+            return False
 
     def Process(self, request_iterator, context):
-        is_priority = False
+        # Dynamically check priority for this tenant (cached by SDK)
+        is_priority = self._is_priority_enabled()
         task_id = None
         provider = None
 
@@ -142,14 +175,12 @@ class ExternalProcessorServicer(external_processor_pb2_grpc.ExternalProcessorSer
                 0  # Default to 0 based on proto definition if attribute access fails
             )
 
-        for req in request_iterator:
-            try:
                 if req.HasField("request_headers"):
                     logger.info("Received request headers")
                     for header in req.request_headers.headers.headers:
-                        # TODO: will be implemented fetch priority kubernetes pod environment variable
+                        # Allow manual override via header even if environment is low priority
                         if (
-                            header.key.lower() == "x-priority"
+                            header.key.lower() == "x-virusscan-priority"
                             and header.value.lower() == "high"
                         ):
                             is_priority = True
@@ -283,7 +314,47 @@ class ProducerService:
             self.server.stop(0)
 
 
-def serve():
+@click.command()
+@click.option(
+    "--redis-host",
+    envvar="REDIS_HOST",
+    default="localhost",
+    help="Redis host",
+)
+@click.option(
+    "--redis-port",
+    envvar="REDIS_PORT",
+    default=6379,
+    type=int,
+    help="Redis port",
+)
+@click.option(
+    "--scan-tmp-dir",
+    envvar="SCAN_TMP_DIR",
+    default="/tmp/virusscan",
+    help="Temporary directory for scans",
+)
+@click.option(
+    "--scan-file-threshold-mb",
+    envvar="SCAN_FILE_THRESHOLD_MB",
+    default=10,
+    type=int,
+    help="File size threshold for different scan modes",
+)
+@click.option(
+    "--producer-port",
+    envvar="PRODUCER_PORT",
+    default=50051,
+    type=int,
+    help="gRPC server port",
+)
+def serve(
+    redis_host,
+    redis_port,
+    scan_tmp_dir,
+    scan_file_threshold_mb,
+    producer_port,
+):
     """Entry point for virus-scanner-producer command"""
 
     logging.basicConfig(
@@ -293,14 +364,17 @@ def serve():
     container = ProducerContainer()
     container.config.from_dict(
         {
-            "redis_host": os.environ.get("REDIS_HOST", "localhost"),
-            "redis_port": int(os.environ.get("REDIS_PORT", "6379")),
-            "scan_tmp_dir": os.environ.get("SCAN_TMP_DIR", "/tmp/virusscan"),
-            "scan_file_threshold_mb": int(
-                os.environ.get("SCAN_FILE_THRESHOLD_MB", "10")
-            ),
+            "redis_host": redis_host,
+            "redis_port": redis_port,
+            "scan_tmp_dir": scan_tmp_dir,
+            "scan_file_threshold_mb": scan_file_threshold_mb,
         }
     )
+
+    # We need to pass the port to ProducerService or handle it via env in its start method.
+    # Updated main.py expects PRODUCER_PORT env var currently.
+    # To be clean, let's update ProducerService to take port as an argument.
+    os.environ["PRODUCER_PORT"] = str(producer_port)
 
     service = ProducerService(container=container)
     service.start()
