@@ -78,7 +78,7 @@ class ICAPRequestHandler(socketserver.StreamRequestHandler):
     def handle_mod(self, uri, icap_headers, mode):
         # 1. Check Cache
         # If the URL is known to be CLEAN, return 204 immediately (Client sends nothing).
-        if self.service.scanner.check_cache(uri):
+        if self.service.check_cache(uri):
             logger.info(f"CACHE HIT: {uri} - Skipping Scan")
             self.send_response(204)
             return
@@ -110,8 +110,8 @@ class ICAPRequestHandler(socketserver.StreamRequestHandler):
         # For now, simple logic or always false unless specified
 
         # Prepare Scan Task
-        task_id, provider = self.service.scanner.prepare_scan(is_priority=is_priority)
-        self.service.scanner.emit_task(task_id, is_priority=is_priority)
+        task_id, provider = self.service.prepare_scan(is_priority=is_priority)
+        self.service.emit_task(task_id, is_priority=is_priority)
 
         # Read Chunks
         while True:
@@ -138,9 +138,9 @@ class ICAPRequestHandler(socketserver.StreamRequestHandler):
 
         # Finalize and Wait
         provider.finalize_push()
-        self.service.scanner.record_ingest_time(task_id)
+        self.service.record_ingest_time(task_id)
 
-        status_raw = self.service.scanner.wait_for_result(task_id, timeout=30)
+        status_raw = self.service.wait_for_result(task_id, timeout=30)
 
         if status_raw:
             status_data = json.loads(status_raw.decode("utf-8"))
@@ -150,7 +150,7 @@ class ICAPRequestHandler(socketserver.StreamRequestHandler):
 
         # Clean, allow traffic
         # Store in cache so we skip next time
-        self.service.scanner.store_cache(uri)
+        self.service.store_cache(uri)
         self.send_response(204)
 
     def send_response(self, code):
