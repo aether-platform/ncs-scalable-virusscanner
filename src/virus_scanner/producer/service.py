@@ -1,3 +1,4 @@
+import hashlib
 import time
 import uuid
 from typing import Any, Callable, Optional, Tuple
@@ -75,3 +76,17 @@ class StreamScannerService:
         except Exception:
             self._start_times.pop(task_id, None)  # Ensure cleanup on error
             raise
+
+    def check_cache(self, uri: str) -> bool:
+        """Checks if the URI is cached as clean."""
+        # Simple hash of URI to avoid key length issues
+        key_hash = hashlib.sha256(uri.encode()).hexdigest()
+        cache_key = f"virus_scan:cache:{key_hash}"
+        return bool(self.redis.exists(cache_key))
+
+    def store_cache(self, uri: str, ttl: int = 3600):
+        """Stores the URI as clean in cache."""
+        key_hash = hashlib.sha256(uri.encode()).hexdigest()
+        cache_key = f"virus_scan:cache:{key_hash}"
+        # Store "1" with expiration
+        self.redis.set(cache_key, "1", ex=ttl)

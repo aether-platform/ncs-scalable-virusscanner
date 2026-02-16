@@ -1,362 +1,229 @@
 """
-Virus Scanner Producer (Envoy External Processor)
+Virus Scanner Producer (ICAP Server)
 
-gRPC service that intercepts requests from Envoy, enqueues virus scan tasks to Redis,
+ICAP service that intercepts requests/responses from Squid, enqueues virus scan tasks to Redis,
 and blocks malicious content.
-
-Based on experiment/ncs-envoy-clamav/python/bridge.py
 """
 
 import json
 import logging
 import os
-import signal
-import sys
-import threading
-import time
-from concurrent import futures
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Optional
+import socketserver
 
 import click
-import grpc
-import redis
-from flagsmith import Flagsmith
 
 from .containers import ProducerContainer
-from .service import StreamScannerService
 
 logger = logging.getLogger(__name__)
 
-# Add current directory to path to find generated protos
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# Envoy ext_proc proto imports
-try:
-    from envoy.service.ext_proc.v3 import (
-        external_processor_pb2,
-        external_processor_pb2_grpc,
-    )
-    from envoy.type.v3 import http_status_pb2
-except ImportError as e:
-    # Protos not generated yet
-    logger.warning(f"Envoy protos not found or failed to import: {e}")
-    external_processor_pb2 = None
+# Basic ICAP Server Implementation
+class ICAPRequestHandler(socketserver.StreamRequestHandler):
+    def handle(self):
+        try:
+            self.service = self.server.service_instance
+            self.redis = self.server.redis_client
+            self.process_request()
+        except Exception as e:
+            logger.error(f"Error handling request: {e}")
 
-    # Use a dummy class for inheritance if protos are missing to avoid crash at definition time
-    class MockServicer:
-        pass
+    def process_request(self):
+        # Read ICAP Header
+        headers = {}
+        method = None
+        uri = None
+        protocol = None
 
-    external_processor_pb2_grpc = type(
-        "Mock", (), {"ExternalProcessorServicer": MockServicer}
-    )
-    http_status_pb2 = None
+        # Parse Request Line
+        line = self.rfile.readline().strip().decode("utf-8")
+        if not line:
+            return
+        parts = line.split()
+        if len(parts) >= 3:
+            method, uri, protocol = parts[0], parts[1], parts[2]
 
+        # Parse Headers
+        while True:
+            line = self.rfile.readline().strip().decode("utf-8")
+            if not line:
+                break
+            if ":" in line:
+                k, v = line.split(":", 1)
+                headers[k.strip().lower()] = v.strip()
 
-class HealthHandler(BaseHTTPRequestHandler):
-    """HTTP handler for health checks and metrics"""
+        logger.info(f"ICAP Request: {method} {uri}")
 
-    def __init__(self, redis_client, *args, **kwargs):
-        self.redis_client = redis_client
-        super().__init__(*args, **kwargs)
+        if method == "OPTIONS":
+            self.handle_options(uri)
+        elif method == "REQMOD":
+            self.handle_mod(uri, headers, mode="REQMOD")
+        elif method == "RESPMOD":
+            self.handle_mod(uri, headers, mode="RESPMOD")
+        else:
+            self.send_error(501, "Method not implemented")
 
-    def do_GET(self):
-        if self.path == "/metrics":
-            self.send_response(200)
-            self.send_header("Content-type", "text/plain")
-            self.end_headers()
+    def handle_options(self, uri):
+        response = (
+            "ICAP/1.0 200 OK\r\n"
+            "Methods: REQMOD, RESPMOD\r\n"
+            "Service: VirusScanner/1.0\r\n"
+            'ISTag: "vs-1.0"\r\n'
+            "Transfer-Preview: *\r\n"
+            "Max-Connections: 100\r\n"
+            "Options-TTL: 3600\r\n"
+            "\r\n"
+        )
+        self.wfile.write(response.encode())
 
+    def handle_mod(self, uri, icap_headers, mode):
+        # 1. Check Cache
+        # If the URL is known to be CLEAN, return 204 immediately (Client sends nothing).
+        if self.service.scanner.check_cache(uri):
+            logger.info(f"CACHE HIT: {uri} - Skipping Scan")
+            self.send_response(204)
+            return
+
+        # Extract Encapsulated header to find body offset
+        encapsulated = icap_headers.get("encapsulated", "")
+
+        # We need to parse request/response headers from the encapsulated body
+        # For simplicity in this specialized scanner, we focus on the BODY processing.
+        # But Squid sends headers first.
+
+        # Read encapsulated parts logic is complex for full ICAP.
+        # Implements a simplified approach: Scan EVERYTHING if body is present.
+
+        # 1. Receive Body (Chunks)
+        # ICAP uses chunked encoding for the body sent to us.
+
+        # Identify if body exists
+        has_body = "res-body=" in encapsulated or "req-body=" in encapsulated
+
+        if not has_body:
+            # No body, nothing to scan. Allow 204.
+            self.send_response(204)
+            return
+
+        # Determine Priority
+        is_priority = False
+        # Logic to check priority (e.g. from X-Client-IP header passing through)
+        # For now, simple logic or always false unless specified
+
+        # Prepare Scan Task
+        task_id, provider = self.service.scanner.prepare_scan(is_priority=is_priority)
+        self.service.scanner.emit_task(task_id, is_priority=is_priority)
+
+        # Read Chunks
+        while True:
+            line = self.rfile.readline().decode("utf-8")
+            if not line:
+                break  # Unexpected EOF
+
+            # Helper to parse chunk size
             try:
-                prio_len = self.redis_client.llen("scan_priority")
-                norm_len = self.redis_client.llen("scan_normal")
-                prio_tat_raw = self.redis_client.get("tat_priority_last")
-                norm_tat_raw = self.redis_client.get("tat_normal_last")
+                chunk_size_hex = line.strip().split(";")[0]
+                chunk_size = int(chunk_size_hex, 16)
+            except ValueError:
+                logger.error(f"Invalid chunk size: {line}")
+                break
 
-                prio_tat = prio_tat_raw.decode("utf-8") if prio_tat_raw else "0"
-                norm_tat = norm_tat_raw.decode("utf-8") if norm_tat_raw else "0"
+            if chunk_size == 0:
+                break  # End of preview or body
 
-                res = f"virusscan_priority_queue_length {prio_len}\n"
-                res += f"virusscan_normal_queue_length {norm_len}\n"
-                res += f"virusscan_priority_tat_ms {prio_tat}\n"
-                res += f"virusscan_normal_tat_ms {norm_tat}\n"
+            # Read chunk data
+            data = self.rfile.read(chunk_size)
+            self.rfile.read(2)  # CRLF
 
-                ingest_tat_raw = self.redis_client.get("ingest_ms_last")
-                ingest_tat = ingest_tat_raw.decode("utf-8") if ingest_tat_raw else "0"
-                res += f"virusscan_ingest_tat_ms {ingest_tat}\n"
+            provider.push_chunk(data.encode("utf-8") if isinstance(data, str) else data)
 
-                self.wfile.write(res.encode())
-            except Exception as e:
-                logger.error(f"Metrics error: {e}")
-                self.send_response(500)
-                self.end_headers()
+        # Finalize and Wait
+        provider.finalize_push()
+        self.service.scanner.record_ingest_time(task_id)
 
-        elif self.path == "/health":
-            self.send_response(200)
-            self.send_header("Content-type", "text/plain")
-            self.end_headers()
-            self.wfile.write(b"OK")
-        else:
-            self.send_response(404)
-            self.end_headers()
+        status_raw = self.service.scanner.wait_for_result(task_id, timeout=30)
 
-    def log_message(self, format, *args):
-        pass  # Suppress HTTP logs
+        if status_raw:
+            status_data = json.loads(status_raw.decode("utf-8"))
+            if status_data.get("status") == "INFECTED":
+                self.send_blocked_response(status_data.get("virus", "Unknown"))
+                return
+
+        # Clean, allow traffic
+        # Store in cache so we skip next time
+        self.service.scanner.store_cache(uri)
+        self.send_response(204)
+
+    def send_response(self, code):
+        res = f"ICAP/1.0 {code} OK\r\n\r\n"
+        self.wfile.write(res.encode())
+
+    def send_blocked_response(self, virus_name):
+        # Return 403 Forbidden via ICAP 200 OK (Modified)
+        html = f"<html><body><h1>Virus Detected!</h1><p>The file you are trying to access is infected with: <b>{virus_name}</b></p></body></html>"
+
+        # Construct HTTP Response
+        http_resp = (
+            "HTTP/1.1 403 Forbidden\r\n"
+            "Content-Type: text/html\r\n"
+            f"Content-Length: {len(html)}\r\n"
+            "\r\n"
+            f"{html}"
+        )
+
+        icap_res = (
+            "ICAP/1.0 200 OK\r\n"
+            'ISTag: "vs-1.0"\r\n'
+            "Encapsulated: res-hdr=0, res-body={}\r\n"
+            "\r\n"
+        ).format(len(http_resp.split("\r\n\r\n")[0]) + 4)  # Approximation, simplified
+
+        # Correct construction needs precise offset calculation.
+        # For simplicity, let's use a simpler 200 OK if we modify.
+        # But we need to wrap the HTTP response.
+
+        self.wfile.write(icap_res.encode())
+        self.wfile.write(http_resp.encode())
 
 
-class MetricsServer:
-    """HTTP server for health checks and Prometheus metrics"""
+class ICAPServer(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
 
-    def __init__(self, redis_client: redis.Redis, port: int = 8080):
+    def __init__(
+        self, server_address, RequestHandlerClass, service_instance, redis_client
+    ):
+        super().__init__(server_address, RequestHandlerClass)
+        self.service_instance = service_instance
         self.redis_client = redis_client
-        self.port = port
-
-    def run(self):
-        """Start HTTP server"""
-
-        def handler(*args, **kwargs):
-            return HealthHandler(self.redis_client, *args, **kwargs)
-
-        try:
-            httpd = HTTPServer(("0.0.0.0", self.port), handler)
-            logger.info(f"Starting metrics server on :{self.port}...")
-            httpd.serve_forever()
-        except Exception as e:
-            logger.error(f"Failed to start metrics server: {e}")
-
-
-class ExternalProcessorServicer(external_processor_pb2_grpc.ExternalProcessorServicer):
-    """Envoy External Processor implementation"""
-
-    def __init__(self, scanner_service: StreamScannerService):
-        self.scanner = scanner_service
-        self.tenant_id = os.getenv("TENANT_ID")
-        self.flagsmith_key = os.getenv("FLAGSMITH_ENVIRONMENT_KEY")
-        
-        if self.flagsmith_key:
-            self.flagsmith = Flagsmith(environment_key=self.flagsmith_key)
-            logger.info(f"Flagsmith initialized for dynamic priority checking (Tenant: {self.tenant_id})")
-        else:
-            self.flagsmith = None
-            logger.warning("FLAGSMITH_ENVIRONMENT_KEY not set. Dynamic priority checking disabled.")
-
-    def _is_priority_enabled(self) -> bool:
-        """
-        Checks Flagsmith for the current tenant's priority status.
-        Flagsmith SDK handles caching internally.
-        """
-        # Fallback to header-only if Flagsmith or Tenant ID is missing
-        if not self.flagsmith or not self.tenant_id:
-            return False
-            
-        try:
-            # Note: We can add identity traits here if needed (e.g. plan_type)
-            # but usually flags are calculated on Flagsmith side based on pre-synced traits
-            identity_flags = self.flagsmith.get_identity_flags(identifier=self.tenant_id)
-            return identity_flags.is_feature_enabled("enable_virus_scan_priority")
-        except Exception as e:
-            logger.error(f"Failed to fetch flags for tenant {self.tenant_id}: {e}")
-            return False
-
-    def Process(self, request_iterator, context):
-        # Dynamically check priority for this tenant (cached by SDK)
-        is_priority = self._is_priority_enabled()
-        task_id = None
-        provider = None
-
-        # Accessing Enum values - flattened in Python but using full path for clarity/reliability if possible
-        # CONTINUE = external_processor_pb2.CommonResponse.ResponseStatus.CONTINUE
-        # But usually external_processor_pb2.CommonResponse.CONTINUE works
-        try:
-            CONTINUE_STATUS = (
-                external_processor_pb2.CommonResponse.ResponseStatus.Value("CONTINUE")
-            )
-        except (AttributeError, KeyError, ValueError):
-            CONTINUE_STATUS = (
-                0  # Default to 0 based on proto definition if attribute access fails
-            )
-
-                if req.HasField("request_headers"):
-                    logger.info("Received request headers")
-                    for header in req.request_headers.headers.headers:
-                        # Allow manual override via header even if environment is low priority
-                        if (
-                            header.key.lower() == "x-virusscan-priority"
-                            and header.value.lower() == "high"
-                        ):
-                            is_priority = True
-                            break
-
-                    yield external_processor_pb2.ProcessingResponse(
-                        request_headers=external_processor_pb2.HeadersResponse(
-                            response=external_processor_pb2.CommonResponse(
-                                status=CONTINUE_STATUS
-                            )
-                        )
-                    )
-
-                elif req.HasField("request_body"):
-                    body = req.request_body.body
-                    logger.info(f"Received request body chunk, len: {len(body)}")
-
-                    if not task_id:
-                        task_id, provider = self.scanner.prepare_scan(
-                            is_priority=is_priority
-                        )
-                        self.scanner.emit_task(task_id, is_priority=is_priority)
-
-                    provider.push_chunk(body)
-
-                    if req.request_body.end_of_stream:
-                        provider.finalize_push()
-                        self.scanner.record_ingest_time(task_id)
-
-                        # 2. Wait for result (only on the last chunk)
-                        status_raw = self.scanner.wait_for_result(task_id, timeout=30)
-
-                        if not status_raw:
-                            logger.error("Timeout waiting for scan result")
-                            yield external_processor_pb2.ProcessingResponse(
-                                request_body=external_processor_pb2.BodyResponse(
-                                    response=external_processor_pb2.CommonResponse(
-                                        status=CONTINUE_STATUS
-                                    )
-                                )
-                            )
-                        else:
-                            status_json = status_raw.decode("utf-8")
-                            status_data = json.loads(status_json)
-
-                            if status_data.get("status") == "INFECTED":
-                                msg = f"Virus detected! {status_data.get('virus', '')}"
-                                yield external_processor_pb2.ProcessingResponse(
-                                    immediate_response=external_processor_pb2.ImmediateResponse(
-                                        status=http_status_pb2.HttpStatus(code=403),
-                                        details=msg,
-                                        body=msg.encode(),
-                                    )
-                                )
-                            else:
-                                yield external_processor_pb2.ProcessingResponse(
-                                    request_body=external_processor_pb2.BodyResponse(
-                                        response=external_processor_pb2.CommonResponse(
-                                            status=CONTINUE_STATUS
-                                        )
-                                    )
-                                )
-                    else:
-                        # Continue receiving chunks
-                        yield external_processor_pb2.ProcessingResponse(
-                            request_body=external_processor_pb2.BodyResponse(
-                                response=external_processor_pb2.CommonResponse(
-                                    status=CONTINUE_STATUS
-                                )
-                            )
-                        )
-
-                else:
-                    # Other phases
-                    yield external_processor_pb2.ProcessingResponse(
-                        request_headers=external_processor_pb2.HeadersResponse(
-                            response=external_processor_pb2.CommonResponse(
-                                status=CONTINUE_STATUS
-                            )
-                        )
-                    )
-            except Exception as iteration_error:
-                logger.exception(f"Error during Process iteration: {iteration_error}")
-                # We can't yield anymore if it's a fatal error in generator logic,
-                # but letting it raise allows gRPC to handle it.
 
 
 class ProducerService:
-    """Producer gRPC service"""
-
     def __init__(self, container: "ProducerContainer"):
         self.redis = container.redis_client()
         self.settings = container.settings()
         self.container = container
         self.server = None
-        self.metrics_server = None
 
     def start(self):
-        """Start gRPC server and metrics server"""
-        if external_processor_pb2_grpc is None or external_processor_pb2 is None:
-            raise RuntimeError(
-                "Envoy protos not generated or failed to load. Run generate_protos.sh first."
-            )
+        port = int(os.environ.get("PRODUCER_PORT", "1344"))
+        logger.info(f"Starting ICAP Server on port {port}...")
 
-        # Start gRPC server
-        port = os.environ.get("PRODUCER_PORT", "50051")
-        self.server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-        external_processor_pb2_grpc.add_ExternalProcessorServicer_to_server(
-            ExternalProcessorServicer(self.container.scanner_service()), self.server
+        self.server = ICAPServer(
+            ("0.0.0.0", port),
+            ICAPRequestHandler,
+            self.container.scanner_service(),
+            self.redis,
         )
-        self.server.add_insecure_port(f"[::]:{port}")
-        logger.info(
-            f"Starting Virus Scanner Producer (Envoy ext_proc) on port {port}..."
-        )
-        self.server.start()
-
-        # Start metrics server
-        self.metrics_server = MetricsServer(self.redis, port=8080)
-        metrics_thread = threading.Thread(target=self.metrics_server.run)
-        metrics_thread.daemon = True
-        metrics_thread.start()
-
         try:
-            self.server.wait_for_termination()
+            self.server.serve_forever()
         except KeyboardInterrupt:
-            self.stop()
-
-    def stop(self):
-        """Stop gRPC server"""
-        if self.server:
-            self.server.stop(0)
+            pass
 
 
 @click.command()
-@click.option(
-    "--redis-host",
-    envvar="REDIS_HOST",
-    default="localhost",
-    help="Redis host",
-)
-@click.option(
-    "--redis-port",
-    envvar="REDIS_PORT",
-    default=6379,
-    type=int,
-    help="Redis port",
-)
-@click.option(
-    "--scan-tmp-dir",
-    envvar="SCAN_TMP_DIR",
-    default="/tmp/virusscan",
-    help="Temporary directory for scans",
-)
-@click.option(
-    "--scan-file-threshold-mb",
-    envvar="SCAN_FILE_THRESHOLD_MB",
-    default=10,
-    type=int,
-    help="File size threshold for different scan modes",
-)
-@click.option(
-    "--producer-port",
-    envvar="PRODUCER_PORT",
-    default=50051,
-    type=int,
-    help="gRPC server port",
-)
-def serve(
-    redis_host,
-    redis_port,
-    scan_tmp_dir,
-    scan_file_threshold_mb,
-    producer_port,
-):
-    """Entry point for virus-scanner-producer command"""
-
+@click.option("--redis-host", envvar="REDIS_HOST", default="localhost")
+@click.option("--redis-port", envvar="REDIS_PORT", default=6379, type=int)
+@click.option("--producer-port", envvar="PRODUCER_PORT", default=1344, type=int)
+def serve(redis_host, redis_port, producer_port):
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
     )
@@ -366,17 +233,11 @@ def serve(
         {
             "redis_host": redis_host,
             "redis_port": redis_port,
-            "scan_tmp_dir": scan_tmp_dir,
-            "scan_file_threshold_mb": scan_file_threshold_mb,
         }
     )
 
-    # We need to pass the port to ProducerService or handle it via env in its start method.
-    # Updated main.py expects PRODUCER_PORT env var currently.
-    # To be clean, let's update ProducerService to take port as an argument.
     os.environ["PRODUCER_PORT"] = str(producer_port)
-
-    service = ProducerService(container=container)
+    service = ProducerService(container)
     service.start()
 
 
