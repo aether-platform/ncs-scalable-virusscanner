@@ -4,13 +4,13 @@ image:
   pullPolicy: IfNotPresent
   # Overwrite these in your values-prod.yaml
   consumer:
-    repository: shared-clamav-consumer
+    repository: registry.aether.internal:10443/aether-platform/ncs-scalable-virusscanner-consumer
     tag: latest
   producer:
-    repository: shared-clamav-producer
+    repository: registry.aether.internal:10443/aether-platform/ncs-scalable-virusscanner-producer
     tag: latest
   clamav:
-    repository: clamav/clamav
+    repository: registry.aether.internal:10443/clamav/clamav
     tag: latest
 
 redis:

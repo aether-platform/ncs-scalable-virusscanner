@@ -1,0 +1,6 @@
+docs/
+.git/
+.github/
+__pycache__/
+*.pyc
+protos/

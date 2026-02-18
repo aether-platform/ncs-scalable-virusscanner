@@ -25,3 +25,4 @@ src/virus_scanner/producer/*_pb2_grpc.py
 
 # Docker
 .docker/
+debug_build.log
