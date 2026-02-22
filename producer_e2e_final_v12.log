@@ -1,3 +1,0 @@
-2026-02-23 01:29:48,732 - INFO - Starting Advanced VirusScanner Producer (Async gRPC) on port 50051...
-2026-02-23 01:30:13,835 - WARNING - Flagsmith query failed for e2e-test-tenant, defaulting to normal: Unable to get valid response from Flagsmith API.
-2026-02-23 01:30:13,919 - WARNING - Flagsmith query failed for e2e-test-tenant, defaulting to normal: Unable to get valid response from Flagsmith API.

@@ -14,6 +14,11 @@ def mock_queue_provider():
 
 
 @pytest.fixture
+def mock_state_store():
+    return AsyncMock()
+
+
+@pytest.fixture
 def settings():
     return Settings(
         redis_host="localhost",
@@ -36,9 +41,12 @@ def mock_provider_factory():
 
 
 @pytest.fixture
-def task_service(mock_queue_provider, settings, mock_engine, mock_provider_factory):
+def task_service(
+    mock_queue_provider, mock_state_store, settings, mock_engine, mock_provider_factory
+):
     return ScannerTaskService(
         queue_provider=mock_queue_provider,
+        state_store_provider=mock_state_store,
         settings=settings,
         engine=mock_engine,
         provider_factory=mock_provider_factory,

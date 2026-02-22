@@ -2,6 +2,11 @@
 
 Redis-based virus scanning service with Producer (Envoy ext_proc) and Consumer (ClamAV worker) components.
 
+- **Repository**: [aether-platform/ncs-scalable-virusscanner](https://github.com/aether-platform/ncs-scalable-virusscanner)
+- **Container Images (GHCR)**:
+  - `ghcr.io/aether-platform/ncs-scalable-virusscanner-producer`
+  - `ghcr.io/aether-platform/ncs-scalable-virusscanner-consumer`
+
 ## Design Philosophy: Flexibility First
 
 NCS (Network Connectivity Service) は、純粋なセキュリティツールである以上に、**「フレキシビリティ（柔軟性）」**を最優先の設計思想としています。

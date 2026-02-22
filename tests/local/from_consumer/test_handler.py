@@ -1,13 +1,14 @@
 import asyncio
 import json
 import time
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 import redis.asyncio as redis
 
-from aether_platform.virusscan.consumer.interfaces.worker.handler import \
-    VirusScanHandler
+from aether_platform.virusscan.consumer.interfaces.worker.handler import (
+    VirusScanHandler,
+)
 from aether_platform.virusscan.consumer.settings import Settings
 
 
@@ -35,7 +36,7 @@ def mock_queue_provider():
 
 @pytest.fixture
 def mock_coordinator():
-    return MagicMock()
+    return AsyncMock()
 
 
 @pytest.fixture
