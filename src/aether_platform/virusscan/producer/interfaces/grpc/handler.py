@@ -25,10 +25,12 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
         self,
         orchestrator: ScanOrchestrator,
         cache: IntelligentCacheService,
+        settings: Any,
         flagsmith_client: Any = None,
     ):
         self.orchestrator = orchestrator
         self.cache = cache
+        self.settings = settings
         self.flagsmith = flagsmith_client
 
     def _continue_response(
@@ -107,10 +109,9 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                     yield self._continue_response(is_request_phase, phase="headers")
                     continue
 
-                tenant_id = (
-                    headers.get("x-aether-tenant")
-                    or headers.get("x-forwarded-for")
-                    or "unknown"
+                tenant_id = self.settings.tenant_id
+                client_ip = (
+                    headers.get("x-forwarded-for", "unknown").split(",")[0].strip()
                 )
 
                 # Priority lookup (Async)
@@ -126,7 +127,7 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                 # --- Stage 1: Handshake & Job Dispatching ---
                 # まず、スキャン可能かどうかをコンシューマーと握手（Handshake）して確認します。
                 task_id, provider = self.orchestrator.prepare_session(
-                    is_priority, tenant_id
+                    is_priority, tenant_id, client_ip=client_ip
                 )
                 is_accepted = await self.orchestrator.start_scan(
                     task_id, is_priority, tenant_id

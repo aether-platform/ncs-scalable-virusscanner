@@ -44,6 +44,7 @@ class RedisScanAdapter:
         start_time: int,
         tenant_id: str,
         is_priority: bool,
+        client_ip: str = "unknown",
     ):
         """
         Pushes a new scan task as JSON job metadata into Redis.
@@ -64,6 +65,7 @@ class RedisScanAdapter:
             "enqueued_at": start_time
             / 1e9,  # Convert to seconds for consistency with time.time()
             "tenant_id": tenant_id,
+            "client_ip": client_ip,
             "mode": mode,
         }
 

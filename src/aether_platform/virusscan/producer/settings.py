@@ -13,6 +13,7 @@ class ProducerSettings(BaseSettings):
         scan_tmp_dir: str = None,
         scan_file_threshold_mb: int = None,
         grpc_port: int = None,
+        tenant_id: str = None,
     ):
         super().__init__(
             redis_host=redis_host, redis_port=redis_port, scan_tmp_dir=scan_tmp_dir
@@ -28,3 +29,5 @@ class ProducerSettings(BaseSettings):
             self.grpc_port = int(grpc_port or os.getenv("GRPC_PORT", 50051))
         except (ValueError, TypeError):
             self.grpc_port = 50051
+
+        self.tenant_id = tenant_id or os.getenv("TENANT_ID", "default-tenant")

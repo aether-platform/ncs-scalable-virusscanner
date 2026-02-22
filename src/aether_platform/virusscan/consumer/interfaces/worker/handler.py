@@ -4,23 +4,16 @@ import time
 from typing import Optional
 
 from dependency_injector.wiring import Provide, inject
-from prometheus_client import Histogram
 
 from aether_platform.virusscan.common.queue.provider import QueueProvider
-from aether_platform.virusscan.consumer.application.service import \
-    ScannerTaskService
-from aether_platform.virusscan.consumer.infrastructure.coordinator import \
-    ClusterCoordinator
+from aether_platform.virusscan.consumer.application.service import ScannerTaskService
+from aether_platform.virusscan.consumer.infrastructure.coordinator import (
+    ClusterCoordinator,
+)
 from aether_platform.virusscan.consumer.settings import Settings
 
 # TAT計測用メトリクス
-# stage: "wait" (キュー投入〜処理開始), "process" (処理時間), "total" (キュー投入〜完了)
-TAT_HISTOGRAM = Histogram(
-    "scanner_tat_seconds",
-    "Time taken from enqueue to completion",
-    ["priority", "stage"],
-    buckets=[1, 5, 10, 30, 60, 120, 300, 600],
-)
+# scanner_tat_seconds を application.service 側で処理するためここからは削除します
 
 
 class VirusScanHandler:
@@ -54,7 +47,11 @@ class VirusScanHandler:
         self.logger = logging.getLogger(__name__)
 
     async def _worker_loop(
-        self, name: str, primary_q: str, secondary_q: Optional[str] = None
+        self,
+        name: str,
+        primary_q: str,
+        secondary_q: Optional[str] = None,
+        shutdown_event: Optional[asyncio.Event] = None,
     ):
         """
         Individual worker loop that processes metadata jobs from common queues.
@@ -64,6 +61,11 @@ class VirusScanHandler:
         )
 
         while True:
+            # Check for shutdown signal
+            if shutdown_event and shutdown_event.is_set():
+                self.logger.info(f"Worker [{name}] shutting down gracefully...")
+                break
+
             try:
                 # Determine which queues to check.
                 queues = [primary_q]
@@ -90,7 +92,7 @@ class VirusScanHandler:
                 self.logger.error(f"Worker [{name}] error: {e}")
                 await asyncio.sleep(1)
 
-    async def run(self):
+    async def run(self, shutdown_event: Optional[asyncio.Event] = None):
         """
         The main worker execution manager.
         Starts the coordination loop and multiple concurrent worker loops (4:1 ratio).
@@ -111,6 +113,9 @@ class VirusScanHandler:
         # Start Coordination Loop (Heartbeat and Reload checks)
         async def coordination_loop():
             while True:
+                if shutdown_event and shutdown_event.is_set():
+                    self.logger.info("Coordination loop shutting down gracefully...")
+                    break
                 try:
                     self.coordinator.heartbeat()
                     self.coordinator.handle_sequential_update()
@@ -126,21 +131,31 @@ class VirusScanHandler:
             for i in range(4):
                 tasks.append(
                     asyncio.create_task(
-                        self._worker_loop(f"High-Staff-{i}", priority_q, normal_q)
+                        self._worker_loop(
+                            f"High-Staff-{i}", priority_q, normal_q, shutdown_event
+                        )
                     )
                 )
 
             # 1 Worker: Primary=Normal (Focused on Normal)
             if normal_q:
                 tasks.append(
-                    asyncio.create_task(self._worker_loop("Low-Staff-0", normal_q))
+                    asyncio.create_task(
+                        self._worker_loop(
+                            "Low-Staff-0", normal_q, shutdown_event=shutdown_event
+                        )
+                    )
                 )
         else:
             # Fallback for single queue setup
             for i in range(5):
                 tasks.append(
                     asyncio.create_task(
-                        self._worker_loop(f"Worker-{i}", self.settings.queues[0])
+                        self._worker_loop(
+                            f"Worker-{i}",
+                            self.settings.queues[0],
+                            shutdown_event=shutdown_event,
+                        )
                     )
                 )
 

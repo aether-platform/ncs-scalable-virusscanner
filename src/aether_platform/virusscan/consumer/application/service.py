@@ -1,15 +1,26 @@
+import asyncio
 import json
 import logging
 import time
 from typing import Any, Callable
 
 from dependency_injector.wiring import Provide, inject
+from prometheus_client import Histogram
 
 from aether_platform.virusscan.common.queue.provider import QueueProvider
 from aether_platform.virusscan.consumer.infrastructure.engine_client import (
     ScannerEngineClient,
 )
 from aether_platform.virusscan.consumer.settings import Settings
+
+# TAT計測用メトリクス
+# stage: "wait" (キュー投入〜処理開始), "process" (処理時間), "total" (キュー投入〜完了)
+TAT_HISTOGRAM = Histogram(
+    "scanner_tat_seconds",
+    "Time taken from enqueue to completion",
+    ["priority", "stage"],
+    buckets=[1, 5, 10, 30, 60, 120, 300, 600],
+)
 
 
 class ScannerTaskService:
@@ -20,7 +31,7 @@ class ScannerTaskService:
 
     def _get_free_memory_mb(self) -> float:
         """Internal helper to calculate available system memory in MB."""
-        if not self.config.enable_memory_check:
+        if not self.settings.enable_memory_check:
             return float("inf")
         try:
             import psutil
@@ -43,26 +54,30 @@ class ScannerTaskService:
         result_key = f"result:{stream_id}"
         await self.provider.push(result_key, result_json)
 
-    def _notify_console(self, tenant_id: str, virus_name: str, task_id: str):
+    async def _notify_console(
+        self, tenant_id: str, virus_name: str, task_id: str, client_ip: str = "unknown"
+    ):
         """Internal helper to notify the management console of an infection."""
         try:
             import os
 
-            import requests
+            import httpx
 
             console_url = os.environ.get(
                 "CONSOLE_API_URL", "http://aether-console:3000"
             )
-            requests.post(
-                f"{console_url}/api/webhooks/virus-scan",
-                json={
-                    "tenant_id": tenant_id,
-                    "virus_name": virus_name,
-                    "task_id": task_id,
-                    "status": "INFECTED",
-                },
-                timeout=5,
-            )
+            async with httpx.AsyncClient() as client:
+                await client.post(
+                    f"{console_url}/api/webhooks/virus-scan",
+                    json={
+                        "tenant_id": tenant_id,
+                        "client_ip": client_ip,
+                        "virus_name": virus_name,
+                        "task_id": task_id,
+                        "status": "INFECTED",
+                    },
+                    timeout=5,
+                )
         except Exception as e:
             self.logger.error(f"Failed to notify console: {e}")
 
@@ -72,6 +87,8 @@ class ScannerTaskService:
         enqueued_at: float,
         queue_name: str,
         start_process_time: float,
+        tenant_id: str = "unknown",
+        client_ip: str = "unknown",
     ):
         """
         [Stage 2: Scanning Workflow]
@@ -115,6 +132,11 @@ class ScannerTaskService:
         total_tat = end_time - enqueued_at
 
         priority = "high" if "priority" in queue_name else "normal"
+
+        # Record metrics to Prometheus
+        TAT_HISTOGRAM.labels(priority=priority, stage="wait").observe(wait_tat)
+        TAT_HISTOGRAM.labels(priority=priority, stage="process").observe(process_tat)
+        TAT_HISTOGRAM.labels(priority=priority, stage="total").observe(total_tat)
         self.logger.info(
             f"Scan Done {stream_id} [{priority}]: {duration * 1000:.1f}ms, Virus={virus_name if is_virus else 'None'}, "
             f"TAT(wait/proc/total)={wait_tat:.1f}/{process_tat:.1f}/{total_tat:.1f}s, MemDelta={mem_delta:.0f}MB"
@@ -133,6 +155,20 @@ class ScannerTaskService:
             },
         }
         await self._report_result(stream_id, result_payload)
+
+        # 4.5 Notify Console if infected (Async)
+        if is_virus:
+            # We don't await this directly if we want to proceed fast,
+            # but in this context, it's safer to ensure it's sent or log it.
+            # Using create_task to fire and forget if we don't want to wait.
+            asyncio.create_task(
+                self._notify_console(
+                    tenant_id=tenant_id,
+                    virus_name=virus_name,
+                    task_id=stream_id,
+                    client_ip=client_ip,
+                )
+            )
 
         # 5. Record Metrics (Legacy StateStore for backward compatibility if needed)
         try:
@@ -176,8 +212,16 @@ class ScannerTaskService:
                 self.logger.error(f"Job missing stream_id: {task_data}")
                 return
 
+            tenant_id = job.get("tenant_id", "unknown")
+            client_ip = job.get("client_ip", "unknown")
+
             await self._process_stream_task(
-                stream_id, enqueued_at, queue_name, start_process_time
+                stream_id,
+                enqueued_at,
+                queue_name,
+                start_process_time,
+                tenant_id=tenant_id,
+                client_ip=client_ip,
             )
         except json.JSONDecodeError:
             self.logger.error(

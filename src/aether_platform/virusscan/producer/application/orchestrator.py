@@ -37,20 +37,27 @@ class ScanOrchestrator:
         """
         self.adapter = redis_adapter
         self.provider_factory = provider_factory
-        self._start_times = {}  # task_id -> (start_ns, tenant_id)
+        self._start_times = {}  # task_id -> {start_ns, tenant_id, wait_start}
 
     def _get_start_data(self, task_id: str) -> Tuple[int, str] | None:
         """Internal helper to retrieve session start data."""
         return self._start_times.get(task_id)
 
     def prepare_session(
-        self, is_priority: bool = False, tenant_id: str = "unknown"
+        self,
+        is_priority: bool = False,
+        tenant_id: str = "unknown",
+        client_ip: str = "unknown",
     ) -> Tuple[str, Any]:
         """
         Initializes a new scan session with a unique stream ID.
         """
         task_id = str(uuid.uuid4())
-        self._start_times[task_id] = (time.time_ns(), tenant_id)
+        self._start_times[task_id] = {
+            "start_ns": time.time_ns(),
+            "tenant_id": tenant_id,
+            "client_ip": client_ip,
+        }
 
         # STREAM provider uses RedisStreamProvider which now has async methods
         provider = self.provider_factory("STREAM", chunks_key=task_id)
@@ -77,10 +84,12 @@ class ScanOrchestrator:
             return False
 
         # 2. Dispatch Metadata (メタデータ投入)
-        data = self._get_start_data(task_id)
-        start_time = data[0] if data else time.time_ns()
+        data = self._start_times.get(task_id)
+        start_time = data["start_ns"] if data else time.time_ns()
+        client_ip = data["client_ip"] if data else "unknown"
+
         await self.adapter.enqueue_task(
-            task_id, "STREAM", start_time, tenant_id, is_priority
+            task_id, "STREAM", start_time, tenant_id, is_priority, client_ip=client_ip
         )
 
         # 3. Handshake Execution (ハンドシェイク待機)
@@ -100,7 +109,7 @@ class ScanOrchestrator:
         """
         data = self._get_start_data(task_id)
         if data:
-            start_time, _ = data
+            start_time = data[0] if isinstance(data, tuple) else data.get("start_ns")
             duration_ms = (time.time_ns() - start_time) / 1e6
             await self.adapter.record_metrics(task_id, duration_ms)
 
@@ -110,15 +119,35 @@ class ScanOrchestrator:
         """
         try:
             raw_res = await self.adapter.wait_for_result(task_id, timeout)
-            self._start_times.pop(task_id, None)
+            session_data = self._start_times.pop(task_id, None)
+
+            if not session_data:
+                logger.warning(f"Session data lost for {task_id}")
+                return ScanResult(
+                    task_id=task_id, status=ScanStatus.ERROR, detail="Session data lost"
+                )
+
+            start_ns = session_data["start_ns"]
+            tenant_id = session_data["tenant_id"]
+            total_tat_ms = (time.time_ns() - start_ns) / 1e6
 
             if not raw_res:
+                logger.error(
+                    f"SCAN TIMEOUT: {task_id} (Tenant: {tenant_id}, TAT: {total_tat_ms:.1f}ms)"
+                )
                 return ScanResult(
                     task_id=task_id, status=ScanStatus.ERROR, detail="Timeout"
                 )
 
             data = json.loads(raw_res.decode("utf-8"))
             status_str = data.get("status", "ERROR")
+            virus_name = data.get("virus")
+
+            # Metering Log (Performance-based Experience)
+            logger.info(
+                f"SCAN COMPLETED: {task_id} (Tenant: {tenant_id}, Status: {status_str}, "
+                f"Virus: {virus_name if virus_name else 'None'}, TAT: {total_tat_ms:.1f}ms)"
+            )
 
             return ScanResult(
                 task_id=task_id,

@@ -1201,12 +1201,14 @@ all = [
     { name = "dependency-injector" },
     { name = "flagsmith" },
     { name = "grpcio-tools" },
+    { name = "httpx" },
     { name = "kubernetes" },
     { name = "psutil" },
 ]
 consumer = [
     { name = "clamd" },
     { name = "dependency-injector" },
+    { name = "httpx" },
     { name = "kubernetes" },
     { name = "psutil" },
 ]
@@ -1234,6 +1236,7 @@ requires-dist = [
     { name = "flagsmith", marker = "extra == 'producer'", specifier = ">=3.3.0" },
     { name = "grpcio", specifier = ">=1.60.0" },
     { name = "grpcio-tools", marker = "extra == 'producer'", specifier = ">=1.60.0" },
+    { name = "httpx", marker = "extra == 'consumer'", specifier = ">=0.27.0" },
     { name = "kubernetes", marker = "extra == 'consumer'", specifier = ">=31.0.0" },
     { name = "litestar", specifier = ">=2.15.0" },
     { name = "prometheus-client", specifier = ">=0.21.1" },
