@@ -1,23 +1,24 @@
 import logging
-from typing import Any, Iterator
+from typing import Any, AsyncIterator
 
 import grpc
-from envoy.service.ext_proc.v3 import (external_processor_pb2,
-                                       external_processor_pb2_grpc)
+from envoy.service.ext_proc.v3 import (
+    external_processor_pb2,
+    external_processor_pb2_grpc,
+)
 from envoy.type.v3 import http_status_pb2
 
-from aether_platform.intelligent_cache.application.service import \
-    IntelligentCacheService
-from aether_platform.virusscan.producer.application.orchestrator import \
-    ScanOrchestrator
+from aether_platform.intelligent_cache.application.service import (
+    IntelligentCacheService,
+)
+from aether_platform.virusscan.producer.application.orchestrator import ScanOrchestrator
 
 logger = logging.getLogger(__name__)
 
 
 class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorServicer):
     """
-    gRPC interface that translates Envoy external processing requests into
-    domain/application layer actions (Virus Scanning).
+    Async gRPC interface for Envoy external processing.
     """
 
     def __init__(
@@ -26,14 +27,6 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
         cache: IntelligentCacheService,
         flagsmith_client: Any = None,
     ):
-        """
-        Initializes the gRPC handler.
-
-        Args:
-            orchestrator: The application orchestrator for scanning sessions.
-            cache: The intelligent cache service for policy and bypass.
-            flagsmith_client: Optional Flagsmith client for feature flagging.
-        """
         self.orchestrator = orchestrator
         self.cache = cache
         self.flagsmith = flagsmith_client
@@ -41,7 +34,6 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
     def _continue_response(
         self, is_request_phase: bool, phase: str
     ) -> external_processor_pb2.ProcessingResponse:
-        """Internal helper to create standard continuation responses."""
         if phase == "headers":
             if is_request_phase:
                 return external_processor_pb2.ProcessingResponse(
@@ -59,39 +51,38 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                 response_body=external_processor_pb2.BodyResponse()
             )
 
-    def _get_tenant_plan_priority(self, tenant_id: str) -> bool:
-        """Internal helper to retrieve the priority status for a tenant via Flagsmith."""
+    async def _get_tenant_plan_priority(self, tenant_id: str) -> bool:
         if not self.flagsmith:
             return False
 
         try:
-            # Query Flagsmith identity for the scan_plan feature
+            # Flagsmith query (check if it has async support or use as-is)
             identity_flags = self.flagsmith.get_identity_flags(identifier=tenant_id)
             plan = identity_flags.get_feature_value("scan_plan")
-            return self.cache.check_priority(plan) == "high"
+            # Cache check is now async
+            return await self.cache.check_priority(plan) == "high"
         except Exception as e:
             logger.warning(
                 f"Flagsmith query failed for {tenant_id}, defaulting to normal: {e}"
             )
             return False
 
-    def Process(
+    async def Process(
         self,
-        request_iterator: Iterator[external_processor_pb2.ProcessingRequest],
+        request_iterator: AsyncIterator[external_processor_pb2.ProcessingRequest],
         context: grpc.ServicerContext,
-    ) -> Iterator[external_processor_pb2.ProcessingResponse]:
+    ) -> AsyncIterator[external_processor_pb2.ProcessingResponse]:
         """
-        Main gRPC streaming method that handles Envoy processing requests.
+        Main async gRPC streaming method.
         """
-        # Context for the current HTTP stream
         task_id = None
         provider = None
         current_path = "unknown"
         is_request_phase = True
         is_bypassed = False
 
-        for request in request_iterator:
-            # 1. Header Phase: Bypass and Initialization
+        async for request in request_iterator:
+            # 1. Header Phase
             if request.HasField("request_headers") or request.HasField(
                 "response_headers"
             ):
@@ -109,60 +100,74 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                     }
                     is_request_phase = False
 
-                # Check Intelligent Cache / Bypass
-                if self.cache.check_cache(current_path):
+                # Check Intelligent Cache / Bypass (Async)
+                if await self.cache.check_cache(current_path):
                     logger.info(f"CACHE HIT: {current_path}")
                     is_bypassed = True
                     yield self._continue_response(is_request_phase, phase="headers")
                     continue
 
-                # Prepare session
                 tenant_id = (
                     headers.get("x-aether-tenant")
                     or headers.get("x-forwarded-for")
                     or "unknown"
                 )
 
-                # Priority lookup via Flagsmith
-                is_priority = self._get_tenant_plan_priority(tenant_id)
+                # Priority lookup (Async)
+                is_priority = await self._get_tenant_plan_priority(tenant_id)
 
-                # Notable domain metrics tracking
-                notable_type = self.cache.get_notable_type(current_path)
+                # Notable domain metrics tracking (Async)
+                notable_type = await self.cache.get_notable_type(current_path)
                 if notable_type:
                     logger.info(
                         f"NOTABLE ACCESS: {current_path} (Type: {notable_type})"
                     )
 
+                # --- Stage 1: Handshake & Job Dispatching ---
+                # まず、スキャン可能かどうかをコンシューマーと握手（Handshake）して確認します。
                 task_id, provider = self.orchestrator.prepare_session(
                     is_priority, tenant_id
                 )
-                self.orchestrator.start_scan(task_id, is_priority, tenant_id)
+                is_accepted = await self.orchestrator.start_scan(
+                    task_id, is_priority, tenant_id
+                )
+
+                if not is_accepted:
+                    # 混雑またはタイムアウトによりバイパス
+                    logger.warning(
+                        f"SCAN BYPASSED (Stage 1 Handshake Failed): {task_id}"
+                    )
+                    is_bypassed = True
+                else:
+                    logger.info(f"SCAN ACCEPTED (Stage 1 Handshake Success): {task_id}")
 
                 yield self._continue_response(is_request_phase, phase="headers")
 
-            # 2. Body Phase: Streaming Data
+            # 2. Body Phase
             elif request.HasField("request_body") or request.HasField("response_body"):
+                # --- Stage 2: Data Streaming (Chunk Transmission) ---
+                # ハンドシェイクが成功したIDに対してのみ、データ（Chunk）を送信します。
                 if is_bypassed:
                     yield self._continue_response(is_request_phase, phase="body")
                     continue
 
                 body_field = (
                     request.request_body
-                    if request.HasField("request_body")
+                    if request.HasField("request_headers")
                     else request.response_body
                 )
                 if not provider:
                     yield self._continue_response(is_request_phase, phase="body")
                     continue
 
-                provider.push_chunk(body_field.body)
+                # Provider push is now async
+                await provider.push_chunk(body_field.body)
 
                 if body_field.end_of_stream:
-                    # Final chunk: Await orchestration result
-                    provider.finalize_push()
-                    self.orchestrator.finalize_ingest(task_id)
+                    await provider.finalize_push()
+                    await self.orchestrator.finalize_ingest(task_id)
 
-                    result = self.orchestrator.get_result(task_id)
+                    result = await self.orchestrator.get_result(task_id)
 
                     if result.is_infected():
                         logger.error(f"BLOCKED: Infected by {result.virus_name}")
@@ -177,11 +182,10 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                         )
                         return
 
-                    # Clean: Persist to Cache and Continue
-                    self.cache.store_cache(current_path)
+                    # Clean: Persist to Cache (Async)
+                    await self.cache.store_cache(current_path)
                     yield self._continue_response(is_request_phase, phase="body")
                 else:
-                    # Intermediate: Acknowledge immediately
                     yield self._continue_response(is_request_phase, phase="body")
 
             else:

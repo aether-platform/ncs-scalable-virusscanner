@@ -6,8 +6,9 @@ from typing import Any, Callable
 from dependency_injector.wiring import Provide, inject
 
 from aether_platform.virusscan.common.queue.provider import QueueProvider
-from aether_platform.virusscan.consumer.infrastructure.engine_client import \
-    ScannerEngineClient
+from aether_platform.virusscan.consumer.infrastructure.engine_client import (
+    ScannerEngineClient,
+)
 from aether_platform.virusscan.consumer.settings import Settings
 
 
@@ -29,11 +30,18 @@ class ScannerTaskService:
         except ImportError:
             return float("inf")
 
-    def _report_result(self, task_id: str, result_payload: dict):
+    async def _send_ack(self, stream_id: str):
+        """Signals to the producer that the task has been accepted by a worker."""
+        ack_key = f"ack:{stream_id}"
+        await self.provider.push(ack_key, b"1")
+        # Set a reasonable expiry for the ACK key just in case
+        await self.provider.set(ack_key, b"1", ex=300)
+
+    async def _report_result(self, stream_id: str, result_payload: dict):
         """Internal helper to persist scan results to the queue provider."""
         result_json = json.dumps(result_payload).encode("utf-8")
-        result_key = f"result:{task_id}"
-        self.provider.push(result_key, result_json)
+        result_key = f"result:{stream_id}"
+        await self.provider.push(result_key, result_json)
 
     def _notify_console(self, tenant_id: str, virus_name: str, task_id: str):
         """Internal helper to notify the management console of an infection."""
@@ -58,69 +66,82 @@ class ScannerTaskService:
         except Exception as e:
             self.logger.error(f"Failed to notify console: {e}")
 
-    async def _process_stream_task(self, task_pipe: str, queue_name: str):
-        """Internal helper to process a task and report results back to the producer."""
-        # Format: task_id|mode|push_time|content|tenant_id
-        parts = task_pipe.split("|", 4)
-        if len(parts) < 4:
-            self.logger.error(f"Invalid task format: {task_pipe}")
-            return
+    async def _process_stream_task(
+        self,
+        stream_id: str,
+        enqueued_at: float,
+        queue_name: str,
+        start_process_time: float,
+    ):
+        """
+        [Stage 2: Scanning Workflow]
+        ワーカーがジョブを受け取った後の実際の処理フローです。
 
-        task_id = parts[0]
-        # mode = parts[1] (unused)
-        push_time = int(parts[2])
-        content = parts[3]
-        tenant_id = parts[4] if len(parts) > 4 else "unknown"
+        Steps:
+            1. ACK Handshake: プロデューサーへ受付完了（ACK）を通知し、Chunk送信を開始させます。
+            2. Stream Monitor: Redis Streamからチャンクを順次拾い、ClamAVへ転送します（追いかけスキャン）。
+            3. Finalize: 全チャンク走査後、結果を報告します。
+        """
+        # 1. ACK Handshake (Stage 1 の完了通知)
+        await self._send_ack(stream_id)
 
-        # 1. Prepare Provider
+        # 2. Data Monitoring & Scan Execution (Stage 2 ストリームスキャン)
         try:
-            provider = self.provider_factory("STREAM", chunks_key=content)
+            # We use RedisStreamProvider which is async
+            provider = self.provider_factory("STREAM", chunks_key=stream_id)
         except Exception as e:
-            self.logger.error(f"Failed to create STREAM provider for {task_id}: {e}")
+            self.logger.error(f"Failed to create STREAM provider for {stream_id}: {e}")
             return
 
-        # 2. Execute Scan
+        # 3. Execute Scan
         mem_before = self._get_free_memory_mb()
-        start_time = time.time()
+        start_scan_time = time.time()
 
         try:
-            is_virus, virus_name = self.engine.scan(provider)
+            is_virus, virus_name = await self.engine.scan(provider)
         except Exception as e:
             error_payload = {"status": "ERROR", "message": str(e)}
-            self._report_result(task_id, error_payload)
+            await self._report_result(stream_id, error_payload)
             return
 
-        duration = time.time() - start_time
+        end_time = time.time()
+        duration = end_time - start_scan_time
         mem_after = self._get_free_memory_mb()
         mem_delta = mem_before - mem_after if mem_before != float("inf") else 0
-        total_tat_ms = (time.time_ns() - push_time) / 1e6
 
+        # TAT Calculations (seconds)
+        wait_tat = start_process_time - enqueued_at
+        process_tat = end_time - start_process_time
+        total_tat = end_time - enqueued_at
+
+        priority = "high" if "priority" in queue_name else "normal"
         self.logger.info(
-            f"Scan Done {task_id}: {duration * 1000:.1f}ms, Virus={virus_name if is_virus else 'None'}, MemDelta={mem_delta:.0f}MB, Tenant={tenant_id}"
+            f"Scan Done {stream_id} [{priority}]: {duration * 1000:.1f}ms, Virus={virus_name if is_virus else 'None'}, "
+            f"TAT(wait/proc/total)={wait_tat:.1f}/{process_tat:.1f}/{total_tat:.1f}s, MemDelta={mem_delta:.0f}MB"
         )
 
-        # 3. Report Results
+        # 4. Report Results
         result_payload = {
             "status": "INFECTED" if is_virus else "CLEAN",
             "virus": virus_name if is_virus else None,
-            "data_key": provider.get_data_key() if not is_virus else None,
-            "metrics": {"scan_ms": duration * 1000, "total_tat_ms": total_tat_ms},
-            "tenant_id": tenant_id,
+            "stream_id": stream_id,
+            "metrics": {
+                "scan_ms": duration * 1000,
+                "wait_tat_s": wait_tat,
+                "process_tat_s": process_tat,
+                "total_tat_s": total_tat,
+            },
         }
-        self._report_result(task_id, result_payload)
+        await self._report_result(stream_id, result_payload)
 
-        # 4. Notify Console if infected
-        if is_virus:
-            self._notify_console(tenant_id, virus_name, task_id)
-
-        # 5. Record Metrics
+        # 5. Record Metrics (Legacy StateStore for backward compatibility if needed)
         try:
-            tat_key = (
-                "tat_priority_last" if "priority" in queue_name else "tat_normal_last"
-            )
-            self.provider.set(tat_key, str(total_tat_ms))
+            tat_key = f"tat_{priority}_last"
+            await self.provider.set(
+                tat_key, str(total_tat * 1000)
+            )  # Store in ms for compatibility
         except Exception as e:
-            self.logger.warning(f"Failed to record metrics: {e}")
+            self.logger.warning(f"Failed to record metrics in StateStore: {e}")
 
     @inject
     def __init__(
@@ -132,12 +153,6 @@ class ScannerTaskService:
     ):
         """
         Initializes the task service.
-
-        Args:
-            queue_provider: Abstraction over the transport/storage backend.
-            settings: Consumer configuration.
-            engine: ClamAV engine client.
-            provider_factory: Factory for data ingestion strategies.
         """
         self.provider = queue_provider
         self.settings = settings
@@ -145,15 +160,28 @@ class ScannerTaskService:
         self.provider_factory = provider_factory
         self.logger = logging.getLogger(__name__)
 
-    async def process_task(self, task_data: str, queue_name: str):
+    async def process_task(
+        self, task_data: str, queue_name: str, start_process_time: float
+    ):
         """
         Orchestrates the lifecycle of a single scan task.
-
-        Args:
-            task_data: The raw pipe-separated task string.
-            queue_name: The name of the queue the task was polled from.
+        Handles JSON job format: { "stream_id": "...", "enqueued_at": ..., ... }
         """
         try:
-            await self._process_stream_task(task_data, queue_name)
+            job = json.loads(task_data)
+            stream_id = job.get("stream_id")
+            enqueued_at = job.get("enqueued_at", start_process_time)
+
+            if not stream_id:
+                self.logger.error(f"Job missing stream_id: {task_data}")
+                return
+
+            await self._process_stream_task(
+                stream_id, enqueued_at, queue_name, start_process_time
+            )
+        except json.JSONDecodeError:
+            self.logger.error(
+                f"Failed to decode task JSON (might be old format): {task_data}"
+            )
         except Exception as e:
             self.logger.error(f"Failed to process task: {e}")

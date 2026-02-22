@@ -1,7 +1,7 @@
+import asyncio
 import logging
-from concurrent import futures
 
-import grpc
+import grpc.aio as grpc
 from dependency_injector.wiring import Provide, inject
 from envoy.service.ext_proc.v3 import external_processor_pb2_grpc
 
@@ -13,20 +13,20 @@ logger = logging.getLogger(__name__)
 
 
 @inject
-def serve(
+async def serve(
     handler: VirusScannerExtProcHandler = Provide[ProducerContainer.grpc_handler],
     grpc_port: int = Provide[ProducerContainer.settings.provided.grpc_port],
 ):
-    """Starts the VirusScanner Producer."""
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    """Starts the VirusScanner Producer (Async gRPC)."""
+    server = grpc.server()
     external_processor_pb2_grpc.add_ExternalProcessorServicer_to_server(handler, server)
 
     server.add_insecure_port(f"[::]:{grpc_port}")
     logger.info(
-        f"Starting Advanced VirusScanner Producer (gRPC) on port {grpc_port}..."
+        f"Starting Advanced VirusScanner Producer (Async gRPC) on port {grpc_port}..."
     )
-    server.start()
-    server.wait_for_termination()
+    await server.start()
+    await server.wait_for_termination()
 
 
 def main():
@@ -37,7 +37,10 @@ def main():
     container = ProducerContainer()
     container.wire(modules=[__name__])
 
-    serve()
+    try:
+        asyncio.run(serve())
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":

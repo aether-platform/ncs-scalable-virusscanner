@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 from unittest.mock import AsyncMock, MagicMock
@@ -5,9 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import redis.asyncio as redis
 
-from aether_platform.virusscan.consumer.interfaces.worker.handler import (
-    VirusScanHandler,
-)
+from aether_platform.virusscan.consumer.interfaces.worker.handler import \
+    VirusScanHandler
 from aether_platform.virusscan.consumer.settings import Settings
 
 
@@ -58,7 +58,7 @@ async def test_handler_loop_iteration(
     class StopIter(BaseException):
         pass
 
-    # Mock provider.pop to return a task and then raise an exception to break the loop for testing
+    # Mock provider.pop to return a job and then raise StopIter to break the loop
     job_metadata = {
         "stream_id": "stream-123",
         "priority": "high",
@@ -66,24 +66,39 @@ async def test_handler_loop_iteration(
     }
     task_data_json = json.dumps(job_metadata)
 
-    # mock_queue_provider.pop is an AsyncMock
-    mock_queue_provider.pop.side_effect = [
-        ("scan_priority", task_data_json.encode("utf-8")),
-        StopIter(),
-    ]
+    # Use a side_effect function to handle concurrent workers
+    pop_calls = 0
+
+    async def side_effect(*args, **kwargs):
+        nonlocal pop_calls
+        pop_calls += 1
+        if pop_calls == 1:
+            return ("scan_priority", task_data_json.encode("utf-8"))
+        elif pop_calls == 2:
+            raise StopIter()
+        else:
+            # Other workers just wait or return None
+            await asyncio.sleep(0.1)
+            return None
+
+    mock_queue_provider.pop.side_effect = side_effect
 
     try:
         await handler.run()
     except (StopIter, KeyboardInterrupt):
         pass
 
-    # Verify coordinator methods called (sync)
+    # Verify coordinator methods called
     mock_coordinator.heartbeat.assert_called()
     mock_coordinator.handle_sequential_update.assert_called()
 
-    # Verify task service called (async) with start_process_time
+    # Verify task service called
     mock_task_service.process_task.assert_called()
-    call_args = mock_task_service.process_task.call_args[0]
-    assert call_args[0] == task_data_json
-    assert call_args[1] == "scan_priority"
-    assert isinstance(call_args[2], float)  # start_process_time
+
+    # Check arguments: (task_data, queue_name, start_process_time=...)
+    # AsyncMock keeps track of call in call_args which has .args and .kwargs
+    last_call = mock_task_service.process_task.call_args
+    assert last_call.args[0] == task_data_json
+    assert last_call.args[1] == "scan_priority"
+    assert "start_process_time" in last_call.kwargs
+    assert isinstance(last_call.kwargs["start_process_time"], float)

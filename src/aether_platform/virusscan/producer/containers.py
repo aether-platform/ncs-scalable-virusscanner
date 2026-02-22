@@ -1,6 +1,6 @@
 import os
 
-import redis
+import redis.asyncio as redis
 from dependency_injector import containers, providers
 from flagsmith import Flagsmith
 

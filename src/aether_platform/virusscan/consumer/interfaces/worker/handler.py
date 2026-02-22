@@ -7,10 +7,10 @@ from dependency_injector.wiring import Provide, inject
 from prometheus_client import Histogram
 
 from aether_platform.virusscan.common.queue.provider import QueueProvider
-from aether_platform.virusscan.consumer.application.service import ScannerTaskService
-from aether_platform.virusscan.consumer.infrastructure.coordinator import (
-    ClusterCoordinator,
-)
+from aether_platform.virusscan.consumer.application.service import \
+    ScannerTaskService
+from aether_platform.virusscan.consumer.infrastructure.coordinator import \
+    ClusterCoordinator
 from aether_platform.virusscan.consumer.settings import Settings
 
 # TAT計測用メトリクス

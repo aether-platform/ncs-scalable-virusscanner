@@ -10,6 +10,8 @@ dependencies = [
     "litestar>=2.15.0",
     "uvicorn>=0.34.0",
     "prometheus-client>=0.21.1",
+    "grpcio>=1.60.0",
+    "protobuf>=4.25.0",
 ]
 
 [project.optional-dependencies]
@@ -22,6 +24,7 @@ consumer = [
 producer = [
     "dependency-injector>=4.48.3",
     "flagsmith>=3.3.0",
+    "grpcio-tools>=1.60.0",
 ]
 all = [
     "virus-scanner-image[consumer,producer]",

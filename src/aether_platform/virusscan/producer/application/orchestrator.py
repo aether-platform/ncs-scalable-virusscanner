@@ -8,10 +8,10 @@ from dependency_injector import providers
 from dependency_injector.wiring import Provide, inject
 
 from aether_platform.virusscan.producer.containers import ProducerContainer
-from aether_platform.virusscan.producer.domain.models import (ScanResult,
-                                                              ScanStatus)
-from aether_platform.virusscan.producer.infrastructure.redis_adapter import \
-    RedisScanAdapter
+from aether_platform.virusscan.producer.domain.models import ScanResult, ScanStatus
+from aether_platform.virusscan.producer.infrastructure.redis_adapter import (
+    RedisScanAdapter,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +19,7 @@ logger = logging.getLogger(__name__)
 class ScanOrchestrator:
     """
     Application service that orchestrates the workflow of a single virus scan.
-    Manages session lifecycle, delegates blocking calls to the adapter, and
-    interfaces with storage providers.
+    Now fully asynchronous.
     """
 
     _start_times: Dict[str, Tuple[int, str]] = {}
@@ -35,10 +34,6 @@ class ScanOrchestrator:
     ):
         """
         Initializes the orchestrator.
-
-        Args:
-            redis_adapter: Infrastructure adapter for queue operations.
-            provider_factory: Factory to create DataProvider strategies.
         """
         self.adapter = redis_adapter
         self.provider_factory = provider_factory
@@ -52,62 +47,69 @@ class ScanOrchestrator:
         self, is_priority: bool = False, tenant_id: str = "unknown"
     ) -> Tuple[str, Any]:
         """
-        Initializes a new scan session and prepares the data provider.
-
-        Args:
-            is_priority: Initial priority hint.
-            tenant_id: Tenant identifier.
-
-        Returns:
-            A tuple of (task_id, provider).
+        Initializes a new scan session with a unique stream ID.
         """
         task_id = str(uuid.uuid4())
         self._start_times[task_id] = (time.time_ns(), tenant_id)
 
+        # STREAM provider uses RedisStreamProvider which now has async methods
         provider = self.provider_factory("STREAM", chunks_key=task_id)
         return task_id, provider
 
-    def start_scan(
+    async def start_scan(
         self, task_id: str, is_priority: bool = False, tenant_id: str = "unknown"
-    ):
+    ) -> bool:
         """
-        Emits the scan task to the queue for asynchronous processing.
+        [Stage 1: Handshake]
+        スキャンの開始を要求し、コンシューマーが受付可能か確認（ハンドシェイク）します。
 
-        Args:
-            task_id: Task identifier.
-            is_priority: Final priority decision.
-            tenant_id: Tenant identifier.
+        Steps:
+            1. Predictive Bypass: 過去のTATに基づき、混雑状況を事前チェック。
+            2. Enqueue Job: 軽量なメタデータを共通キューに投入。
+            3. Wait for ACK: 特定のワーカーがこのIDを拾う（Handshake成立）のを待つ。
         """
+        # 1. Predictive Congestion Bypass (事前混雑回避)
+        last_tat = await self.adapter.get_last_tat(is_priority)
+        if last_tat > 300.0:
+            logger.warning(
+                f"CONGESTION BYPASS (Predictive): {task_id} skipped. Last TAT: {last_tat:.1f}s"
+            )
+            return False
+
+        # 2. Dispatch Metadata (メタデータ投入)
         data = self._get_start_data(task_id)
         start_time = data[0] if data else time.time_ns()
-        self.adapter.enqueue_task(task_id, "STREAM", start_time, tenant_id, is_priority)
+        await self.adapter.enqueue_task(
+            task_id, "STREAM", start_time, tenant_id, is_priority
+        )
 
-    def finalize_ingest(self, task_id: str):
+        # 3. Handshake Execution (ハンドシェイク待機)
+        # 300秒の待機。ワーカーがジョブを拾うと、Redisの 'ack:{id}' に1が書き込まれます。
+        is_accepted = await self.adapter.wait_for_ack(task_id, timeout=300)
+        if not is_accepted:
+            logger.warning(
+                f"HANDSHAKE FAILED (Timeout): {task_id} was not picked up within 300s."
+            )
+            return False
+
+        return True
+
+    async def finalize_ingest(self, task_id: str):
         """
-        Records the completion of the data ingestion phase.
-
-        Args:
-            task_id: Task identifier.
+        Records the completion of the data ingestion phase asynchronously.
         """
         data = self._get_start_data(task_id)
         if data:
             start_time, _ = data
             duration_ms = (time.time_ns() - start_time) / 1e6
-            self.adapter.record_metrics(task_id, duration_ms)
+            await self.adapter.record_metrics(task_id, duration_ms)
 
-    def get_result(self, task_id: str, timeout: int = 30) -> ScanResult:
+    async def get_result(self, task_id: str, timeout: int = 30) -> ScanResult:
         """
-        Waits for and retrieves the scan result.
-
-        Args:
-            task_id: Task identifier.
-            timeout: Maximum wait time in seconds.
-
-        Returns:
-            A ScanResult domain object.
+        Waits asynchronously and retrieves the scan result.
         """
         try:
-            raw_res = self.adapter.wait_for_result(task_id, timeout)
+            raw_res = await self.adapter.wait_for_result(task_id, timeout)
             self._start_times.pop(task_id, None)
 
             if not raw_res:

@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Optional
 
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
 class RedisScanAdapter:
     """
     Infrastructure component acting as an Anti-Corruption Layer (ACL) for
-    queue communication. Decouples the application orchestration from raw Redis commands.
+    queue communication. Balanced for asynchronous operations.
     """
 
     @inject
@@ -36,7 +37,7 @@ class RedisScanAdapter:
         """Internal helper to generate the metrics storage key."""
         return f"metrics:ingest:{task_id}"
 
-    def enqueue_task(
+    async def enqueue_task(
         self,
         task_id: str,
         mode: str,
@@ -45,46 +46,74 @@ class RedisScanAdapter:
         is_priority: bool,
     ):
         """
-        Pushes a new scan task into the priority or normal queue.
+        Pushes a new scan task as JSON job metadata into Redis.
 
         Args:
-            task_id: Unique identifier for the scan task.
+            task_id: Unique identifier for the scan task (Stream ID).
             mode: Data transfer mode (e.g., 'STREAM').
             start_time: Task creation timestamp in nanoseconds.
             tenant_id: Identifier for the user/tenant.
             is_priority: True to use the high-priority queue.
         """
         queue_name = "scan_priority" if is_priority else "scan_normal"
-        # Payload format: taskID|MODE|TIMESTAMP|CONTENT(taskID)|TENANT_ID
-        payload = f"{task_id}|{mode}|{start_time}|{task_id}|{tenant_id}"
-        self.provider.push(queue_name, payload)
 
-    def record_metrics(self, task_id: str, duration_ms: float):
+        # New JSON metadata format: { "stream_id": "...", "priority": "...", "enqueued_at": ... }
+        job_metadata = {
+            "stream_id": task_id,
+            "priority": "high" if is_priority else "low",
+            "enqueued_at": start_time
+            / 1e9,  # Convert to seconds for consistency with time.time()
+            "tenant_id": tenant_id,
+            "mode": mode,
+        }
+
+        payload = json.dumps(job_metadata)
+        await self.provider.push(queue_name, payload)
+
+    async def record_metrics(self, task_id: str, duration_ms: float):
         """
-        Stores ingestion performance metrics.
-
-        Args:
-            task_id: Task identifier.
-            duration_ms: Total ingestion time in milliseconds.
+        Stores ingestion performance metrics asynchronously.
         """
         try:
-            self.provider.set(self._get_metric_key(task_id), str(duration_ms), ex=3600)
+            await self.provider.set(
+                self._get_metric_key(task_id), str(duration_ms), ex=3600
+            )
         except Exception as e:
             logger.warning(f"Failed to record metrics for {task_id}: {e}")
 
-    def wait_for_result(self, task_id: str, timeout: int = 30) -> Optional[bytes]:
+    async def wait_for_ack(self, task_id: str, timeout: int = 300) -> bool:
         """
-        Blocks until a scan result is available for the given task.
+        Blocks asynchronously until a handshake ACK is received for the given task.
+        """
+        ack_key = f"ack:{task_id}"
+        try:
+            res = await self.provider.pop([ack_key], timeout=timeout)
+            return bool(res)
+        except Exception as e:
+            logger.error(f"Error while waiting for ACK {task_id}: {e}")
+            return False
 
-        Args:
-            task_id: Task identifier.
-            timeout: Maximum wait time in seconds.
+    async def get_last_tat(self, is_priority: bool) -> float:
+        """
+        Retrieves the last recorded TAT (in seconds) for the given priority.
+        """
+        tat_key = "tat_high_last" if is_priority else "tat_normal_last"
+        try:
+            val = await self.provider.get(tat_key)
+            return float(val) / 1000.0 if val else 0.0
+        except Exception:
+            return 0.0
 
-        Returns:
-            The raw JSON result bytes, or None on timeout.
+    async def wait_for_result(
+        self, task_id: str, timeout: int = 300
+    ) -> Optional[bytes]:
+        """
+        Blocks asynchronously until a scan result is available for the given task.
         """
         try:
-            res = self.provider.pop([self._get_result_key(task_id)], timeout=timeout)
+            res = await self.provider.pop(
+                [self._get_result_key(task_id)], timeout=timeout
+            )
             if res:
                 return res[1]
             return None
