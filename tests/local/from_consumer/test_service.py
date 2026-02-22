@@ -95,6 +95,8 @@ async def test_process_task_infected(
         "stream_id": task_id,
         "enqueued_at": time.time() - 10,
         "mode": "STREAM",
+        "tenant_id": "test-tenant",
+        "client_ip": "127.0.0.1",
     }
     task_data = json.dumps(job_metadata)
 

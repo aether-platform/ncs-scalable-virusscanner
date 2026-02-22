@@ -7,7 +7,10 @@ from typing import Any, Callable
 from dependency_injector.wiring import Provide, inject
 from prometheus_client import Histogram
 
-from aether_platform.virusscan.common.queue.provider import QueueProvider
+from aether_platform.virusscan.common.queue.provider import (
+    QueueProvider,
+    StateStoreProvider,
+)
 from aether_platform.virusscan.consumer.infrastructure.engine_client import (
     ScannerEngineClient,
 )
@@ -46,7 +49,7 @@ class ScannerTaskService:
         ack_key = f"ack:{stream_id}"
         await self.provider.push(ack_key, b"1")
         # Set a reasonable expiry for the ACK key just in case
-        await self.provider.set(ack_key, b"1", ex=300)
+        await self.store.set(ack_key, b"1", ex=300)
 
     async def _report_result(self, stream_id: str, result_payload: dict):
         """Internal helper to persist scan results to the queue provider."""
@@ -173,7 +176,7 @@ class ScannerTaskService:
         # 5. Record Metrics (Legacy StateStore for backward compatibility if needed)
         try:
             tat_key = f"tat_{priority}_last"
-            await self.provider.set(
+            await self.store.set(
                 tat_key, str(total_tat * 1000)
             )  # Store in ms for compatibility
         except Exception as e:
@@ -183,6 +186,7 @@ class ScannerTaskService:
     def __init__(
         self,
         queue_provider: QueueProvider = Provide["queue_provider"],
+        state_store_provider: StateStoreProvider = Provide["state_store_provider"],
         settings: Settings = Provide["settings"],
         engine: ScannerEngineClient = Provide["engine"],
         provider_factory: Callable[..., Any] = Provide["data_provider"],
@@ -191,6 +195,7 @@ class ScannerTaskService:
         Initializes the task service.
         """
         self.provider = queue_provider
+        self.store = state_store_provider
         self.settings = settings
         self.engine = engine
         self.provider_factory = provider_factory

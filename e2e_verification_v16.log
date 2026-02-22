@@ -1,0 +1,13 @@
+INFO:__main__:--- Starting Enhanced E2E Integrated Test ---
+INFO:__main__:Current Redis Keys: ['clamav:heartbeat:unknown-pod', 'clamav:active_nodes', 'ack:eaf9643a-a03e-4943-9436-7ad4bd97ea0c']
+INFO:__main__:[Test 1] Sending Clean File...
+ERROR:__main__:Test 1 Error: All connection attempts failed
+INFO:__main__:Current Redis Keys: ['clamav:heartbeat:unknown-pod', 'clamav:active_nodes', 'ack:eaf9643a-a03e-4943-9436-7ad4bd97ea0c']
+INFO:__main__:[Test 2] Sending Infected File (EICAR)...
+ERROR:__main__:Test 2 Error: All connection attempts failed
+INFO:__main__:Current Redis Keys: ['clamav:heartbeat:unknown-pod', 'clamav:active_nodes', 'ack:eaf9643a-a03e-4943-9436-7ad4bd97ea0c']
+INFO:__main__:[Test 3] Verifying Webhook Notification...
+INFO:httpx:HTTP Request: GET http://localhost:3001/logs "HTTP/1.1 200 OK"
+INFO:__main__:Mock Console logs length: 536
+ERROR:__main__:FAILED: Webhook for tenant 'e2e-test-tenant' not found.
+INFO:__main__:--- Enhanced E2E Integrated Test Completed ---

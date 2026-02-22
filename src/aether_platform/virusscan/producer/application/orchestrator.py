@@ -7,8 +7,7 @@ from typing import Any, Dict, Tuple
 from dependency_injector import providers
 from dependency_injector.wiring import Provide, inject
 
-from aether_platform.virusscan.producer.containers import ProducerContainer
-from aether_platform.virusscan.producer.domain.models import ScanResult, ScanStatus
+from aether_platform.virusscan.domain.models import ScanResult, ScanStatus
 from aether_platform.virusscan.producer.infrastructure.redis_adapter import (
     RedisScanAdapter,
 )
@@ -27,10 +26,8 @@ class ScanOrchestrator:
     @inject
     def __init__(
         self,
-        redis_adapter: RedisScanAdapter = Provide[ProducerContainer.redis_adapter],
-        provider_factory: providers.FactoryAggregate = Provide[
-            ProducerContainer.data_provider
-        ],
+        redis_adapter: RedisScanAdapter = Provide["redis_adapter"],
+        provider_factory: providers.FactoryAggregate = Provide["data_provider"],
     ):
         """
         Initializes the orchestrator.

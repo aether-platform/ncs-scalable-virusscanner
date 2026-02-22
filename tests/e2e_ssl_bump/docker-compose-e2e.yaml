@@ -1,0 +1,70 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: always
+
+  clamav:
+    image: clamav/clamav:latest
+    restart: always
+    volumes:
+      - clamav-db:/var/lib/clamav
+      - shared-tmp:/tmp/virusscan
+
+  echo-server:
+    image: ealen/echo-server
+    restart: always
+
+  producer:
+    build:
+      context: ../../
+      args:
+        FLAVOR: producer
+    command: virus-scanner-producer
+    environment:
+      - REDIS_HOST=redis
+      - TENANT_ID=e2e-test-tenant
+      - SCAN_TMP_DIR=/tmp/virusscan
+      - PYTHONPATH=/app/src:/app/src/aether_platform/virusscan/producer
+    volumes:
+      - shared-tmp:/tmp/virusscan
+    depends_on:
+      - redis
+
+  consumer:
+    build:
+      context: ../../
+      args:
+        FLAVOR: consumer
+    command: virus-scanner-handler
+    environment:
+      - REDIS_HOST=redis
+      - CLAMD_URL=tcp://clamav:3310
+      - SCAN_MOUNT=/tmp/virusscan
+      - CONSOLE_API_URL=http://mock-console:80/webhook
+      - PYTHONPATH=/app/src:/app/src/aether_platform/virusscan/producer
+    volumes:
+      - shared-tmp:/tmp/virusscan
+    depends_on:
+      - redis
+      - clamav
+
+  envoy:
+    image: envoyproxy/envoy:v1.30-latest
+    command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "-l", "info"]
+    ports:
+      - "4433:443"
+    volumes:
+      - ./envoy-e2e.yaml:/etc/envoy/envoy.yaml
+      - ./certs:/etc/envoy/certs
+    depends_on:
+      - producer
+      - echo-server
+
+  mock-console:
+    image: ealen/echo-server
+    ports:
+      - "3001:80"
+
+volumes:
+  clamav-db:
+  shared-tmp:

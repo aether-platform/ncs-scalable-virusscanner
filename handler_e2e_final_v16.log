@@ -1,0 +1,7 @@
+INFO - 2026-02-23 01:38:41,180 - root - main - Starting VirusScanner Consumer with Metrics/Health on port 9090
+INFO - 2026-02-23 01:38:41,181 - aether_platform.virusscan.consumer.interfaces.worker.handler - handler - Starting Virus Scanner Consumer (Backend: RedisQueueProvider, Queues: ['scan_priority', 'scan_normal'])
+INFO - 2026-02-23 01:38:41,964 - aether_platform.virusscan.consumer.interfaces.worker.handler - handler - Worker [High-Staff-0] started. Primary=scan_priority, Secondary=scan_normal
+INFO - 2026-02-23 01:38:41,964 - aether_platform.virusscan.consumer.interfaces.worker.handler - handler - Worker [High-Staff-1] started. Primary=scan_priority, Secondary=scan_normal
+INFO - 2026-02-23 01:38:41,964 - aether_platform.virusscan.consumer.interfaces.worker.handler - handler - Worker [High-Staff-2] started. Primary=scan_priority, Secondary=scan_normal
+INFO - 2026-02-23 01:38:41,964 - aether_platform.virusscan.consumer.interfaces.worker.handler - handler - Worker [High-Staff-3] started. Primary=scan_priority, Secondary=scan_normal
+INFO - 2026-02-23 01:38:41,964 - aether_platform.virusscan.consumer.interfaces.worker.handler - handler - Worker [Low-Staff-0] started. Primary=scan_normal, Secondary=None

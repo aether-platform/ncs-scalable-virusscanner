@@ -1,13 +1,75 @@
 import asyncio
+import importlib
 import logging
+import os
+import sys
 
 import grpc.aio as grpc
 from dependency_injector.wiring import Provide, inject
+
+# 1. First, import core google protobuf descriptors to populate descriptor pool
+from google.protobuf import descriptor_pb2  # noqa: F401
+
+
+# --- Support for Envoy Protos ---
+def load_all_pb2():
+    # 1. First, import core google protobuf descriptors
+    from google.protobuf import (  # noqa: F401
+        any_pb2,
+        duration_pb2,
+        struct_pb2,
+        timestamp_pb2,
+        wrappers_pb2,
+    )
+
+    # Add the local producer path to sys.path so 'envoy', 'udpa', etc. can be imported
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    if base_dir not in sys.path:
+        sys.path.insert(0, base_dir)
+
+    packages = ["udpa", "xds", "envoy", "validate"]
+    modules_to_load = []
+
+    for pkg_name in packages:
+        pkg_dir = os.path.join(base_dir, pkg_name)
+        if not os.path.exists(pkg_dir):
+            continue
+
+        # Manually walk to find all _pb2.py files
+        for root, _, files in os.walk(pkg_dir):
+            for file in files:
+                if file.endswith("_pb2.py"):
+                    rel_path = os.path.relpath(os.path.join(root, file), base_dir)
+                    mod_name = rel_path.replace(os.sep, ".").replace(".py", "")
+                    modules_to_load.append(mod_name)
+
+    # Try multiple passes to handle dependencies
+    loaded_set = set()
+    for _ in range(5):
+        pass_count = 0
+        for mod_name in sorted(modules_to_load):
+            if mod_name in loaded_set:
+                continue
+            try:
+                importlib.import_module(mod_name)
+                loaded_set.add(mod_name)
+                pass_count += 1
+            except Exception:
+                pass
+        if pass_count == 0:
+            break
+
+
+load_all_pb2()
+# -----------------------------
+# -----------------------------
+
 from envoy.service.ext_proc.v3 import external_processor_pb2_grpc
 
 from aether_platform.virusscan.producer.containers import ProducerContainer
-from aether_platform.virusscan.producer.interfaces.grpc.handler import \
-    VirusScannerExtProcHandler
+from aether_platform.virusscan.producer.interfaces.grpc.handler import (
+    VirusScannerExtProcHandler,
+)
 
 logger = logging.getLogger(__name__)
 

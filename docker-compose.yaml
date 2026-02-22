@@ -19,13 +19,14 @@ services:
         FLAVOR: producer
     command: virus-scanner-producer
     ports:
-      - "50051:50051"  # gRPC
-      - "8080:8080"    # Metrics
+      - "50051:50051" # gRPC
+      - "8080:8080" # Metrics
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - SCAN_TMP_DIR=/tmp/virusscan
       - SCAN_FILE_THRESHOLD_MB=10
+      - TENANT_ID=local-test-tenant
     volumes:
       - ./test-data:/tmp/virusscan
     depends_on:
@@ -39,6 +40,7 @@ services:
     environment:
       - REDIS_HOST=redis
       - CLAMD_URL=tcp://clamav:3310
+      - CONSOLE_API_URL=http://localhost:3000
       - SCAN_MOUNT=/tmp/virusscan
     volumes:
       - ./test-data:/tmp/virusscan

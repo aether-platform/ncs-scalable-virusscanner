@@ -33,7 +33,7 @@ all = [
 
 [project.scripts]
 virus-scanner-handler = "aether_platform.virusscan.consumer.main:main"
-virus-scanner-producer = "aether_platform.virusscan.producer.main:serve"
+virus-scanner-producer = "aether_platform.virusscan.producer.main:main"
 virus-scanner-restart = "aether_platform.virusscan.consumer.main:rollout_restart"
 virus-scanner-update = "aether_platform.virusscan.consumer.main:set_target_epoch"
 

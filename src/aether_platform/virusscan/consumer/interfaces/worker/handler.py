@@ -117,8 +117,8 @@ class VirusScanHandler:
                     self.logger.info("Coordination loop shutting down gracefully...")
                     break
                 try:
-                    self.coordinator.heartbeat()
-                    self.coordinator.handle_sequential_update()
+                    await self.coordinator.heartbeat()
+                    await self.coordinator.handle_sequential_update()
                 except Exception as e:
                     self.logger.error(f"Coordination loop error: {e}")
                 await asyncio.sleep(30)  # Heartbeat interval

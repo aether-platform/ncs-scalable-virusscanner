@@ -1,0 +1,33 @@
+E0223 01:25:13.693468  427565 add_port.cc:83] Failed to add port to server: getaddrinfo("[::]:Provide['grpc_port']"): Servname not supported for ai_socktype (-8)
+Traceback (most recent call last):
+  File "/mnt/c/workspace/vibecoding-platform/app/ncs/virusscanner/image/.venv/bin/virus-scanner-producer", line 10, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/mnt/c/workspace/vibecoding-platform/app/ncs/virusscanner/image/src/aether_platform/virusscan/producer/main.py", line 103, in main
+    asyncio.run(serve())
+    ~~~~~~~~~~~^^^^^^^^^
+  File "/root/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/root/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/root/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/mnt/c/workspace/vibecoding-platform/app/ncs/virusscanner/image/.venv/lib/python3.13/site-packages/dependency_injector/wiring.py", line 1176, in _patched
+    return await fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/workspace/vibecoding-platform/app/ncs/virusscanner/image/src/aether_platform/virusscan/producer/main.py", line 86, in serve
+    server.add_insecure_port(f"[::]:{grpc_port}")
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/workspace/vibecoding-platform/app/ncs/virusscanner/image/.venv/lib/python3.13/site-packages/grpc/aio/_server.py", line 105, in add_insecure_port
+    return _common.validate_port_binding_result(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        address, self._server.add_insecure_port(_common.encode(address))
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/mnt/c/workspace/vibecoding-platform/app/ncs/virusscanner/image/.venv/lib/python3.13/site-packages/grpc/_common.py", line 179, in validate_port_binding_result
+    raise RuntimeError(_ERROR_MESSAGE_PORT_BINDING_FAILED % address)
+RuntimeError: Failed to bind to address [::]:Provide['grpc_port']; set GRPC_VERBOSITY=debug environment variable to see detailed error message.

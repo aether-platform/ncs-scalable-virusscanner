@@ -1,0 +1,35 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  clamav:
+    image: clamav/clamav:latest
+    ports:
+      - "3310:3310"
+    volumes:
+      - clamav-db:/var/lib/clamav
+
+  echo-server:
+    image: ealen/echo-server
+    ports:
+      - "80:80"
+
+  envoy:
+    image: envoyproxy/envoy:v1.30-latest
+    command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "-l", "info"]
+    network_mode: host
+    volumes:
+      - ./envoy-e2e-local.yaml:/etc/envoy/envoy.yaml
+      - ./certs:/etc/envoy/certs
+    depends_on:
+      - echo-server
+
+  mock-console:
+    image: ealen/echo-server
+    ports:
+      - "3001:80"
+
+volumes:
+  clamav-db:

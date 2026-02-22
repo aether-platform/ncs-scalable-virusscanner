@@ -1,0 +1,14 @@
+Traceback (most recent call last):
+  File "/mnt/c/workspace/vibecoding-platform/app/ncs/virusscanner/image/.venv/bin/virus-scanner-producer", line 4, in <module>
+    from aether_platform.virusscan.producer.main import serve
+  File "/mnt/c/workspace/vibecoding-platform/app/ncs/virusscanner/image/src/aether_platform/virusscan/producer/main.py", line 69, in <module>
+    from aether_platform.virusscan.producer.containers import ProducerContainer
+  File "/mnt/c/workspace/vibecoding-platform/app/ncs/virusscanner/image/src/aether_platform/virusscan/producer/containers.py", line 14, in <module>
+    from .application.orchestrator import ScanOrchestrator
+  File "/mnt/c/workspace/vibecoding-platform/app/ncs/virusscanner/image/src/aether_platform/virusscan/producer/application/orchestrator.py", line 11, in <module>
+    from aether_platform.virusscan.producer.infrastructure.redis_adapter import (
+        RedisScanAdapter,
+    )
+  File "/mnt/c/workspace/vibecoding-platform/app/ncs/virusscanner/image/src/aether_platform/virusscan/producer/infrastructure/redis_adapter.py", line 8, in <module>
+    from aether_platform.virusscan.producer.containers import ProducerContainer
+ImportError: cannot import name 'ProducerContainer' from partially initialized module 'aether_platform.virusscan.producer.containers' (most likely due to a circular import) (/mnt/c/workspace/vibecoding-platform/app/ncs/virusscanner/image/src/aether_platform/virusscan/producer/containers.py)

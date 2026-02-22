@@ -2,23 +2,32 @@ import redis.asyncio as redis
 from dependency_injector import containers, providers
 
 from aether_platform.virusscan.common.providers import (
-    InlineStreamProvider, RedisStreamProvider, SharedDiskStreamProvider)
+    InlineStreamProvider,
+    RedisStreamProvider,
+    SharedDiskStreamProvider,
+)
 from aether_platform.virusscan.common.queue.provider import (
-    RedisQueueProvider, RedisStateStoreProvider)
-from aether_platform.virusscan.consumer.application.service import \
-    ScannerTaskService
-from aether_platform.virusscan.consumer.infrastructure.coordinator import \
-    ClusterCoordinator
-from aether_platform.virusscan.consumer.infrastructure.engine_client import \
-    ScannerEngineClient
-from aether_platform.virusscan.consumer.interfaces.worker.handler import \
-    VirusScanHandler
+    RedisQueueProvider,
+    RedisStateStoreProvider,
+)
+from aether_platform.virusscan.consumer.application.service import ScannerTaskService
+from aether_platform.virusscan.consumer.infrastructure.coordinator import (
+    ClusterCoordinator,
+)
+from aether_platform.virusscan.consumer.infrastructure.engine_client import (
+    ScannerEngineClient,
+)
+from aether_platform.virusscan.consumer.interfaces.worker.handler import (
+    VirusScanHandler,
+)
 from aether_platform.virusscan.consumer.settings import Settings
 
 
 class Container(containers.DeclarativeContainer):
     config = providers.Configuration()
-    config.from_env()
+    import os
+
+    config.from_dict(os.environ)
 
     settings = providers.Singleton(
         Settings,
@@ -70,6 +79,7 @@ class Container(containers.DeclarativeContainer):
     task_service = providers.Singleton(
         ScannerTaskService,
         queue_provider=queue_provider,
+        state_store_provider=state_store_provider,
         settings=settings,
         engine=engine,
         provider_factory=data_provider,

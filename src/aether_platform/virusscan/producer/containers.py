@@ -4,12 +4,16 @@ import redis.asyncio as redis
 from dependency_injector import containers, providers
 from flagsmith import Flagsmith
 
-from aether_platform.intelligent_cache.application.service import \
-    IntelligentCacheService
+from aether_platform.intelligent_cache.application.service import (
+    IntelligentCacheService,
+)
 from aether_platform.intelligent_cache.domain.policy import BypassPolicy
 
-from ..common.providers import (InlineStreamProvider, RedisStreamProvider,
-                                SharedDiskStreamProvider)
+from ..common.providers import (
+    InlineStreamProvider,
+    RedisStreamProvider,
+    SharedDiskStreamProvider,
+)
 from ..common.queue.provider import RedisQueueProvider, RedisStateStoreProvider
 from .application.orchestrator import ScanOrchestrator
 from .infrastructure.redis_adapter import RedisScanAdapter
@@ -19,7 +23,7 @@ from .settings import ProducerSettings
 
 class ProducerContainer(containers.DeclarativeContainer):
     config = providers.Configuration()
-    config.from_env()
+    config.from_dict(os.environ)
 
     settings = providers.Singleton(
         ProducerSettings,
@@ -57,6 +61,7 @@ class ProducerContainer(containers.DeclarativeContainer):
     redis_adapter = providers.Singleton(
         RedisScanAdapter,
         queue_provider=queue_provider,
+        state_store=state_store_provider,
     )
 
     # Application
@@ -69,7 +74,7 @@ class ProducerContainer(containers.DeclarativeContainer):
     # Flagsmith Client
     flagsmith = providers.Singleton(
         Flagsmith,
-        environment_key=os.environ.get("FLAGSMITH_ENV_KEY", ""),
+        environment_key=os.environ.get("FLAGSMITH_ENV_KEY", "dummy-key"),
     )
 
     # Intelligent Cache Service (Fully managed by DI)
@@ -87,4 +92,5 @@ class ProducerContainer(containers.DeclarativeContainer):
         orchestrator=orchestrator,
         cache=cache_service,
         flagsmith_client=flagsmith,
+        settings=settings,
     )

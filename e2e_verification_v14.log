@@ -1,0 +1,14 @@
+--- Starting E2E Integrated Test (SSL Bump + Ext Proc) ---
+
+[Test 1] Sending Clean File...
+Response Status: 500
+FAILED: Clean file returned 500. Text: 
+
+[Test 2] Sending Infected File (EICAR)...
+Response Status: 500
+FAILED: Infected file returned 500. Expected 403.
+
+[Test 3] Verifying Webhook Notification in Mock Console...
+FAILED: Webhook for tenant 'e2e-test-tenant' not found in mock console logs.
+
+--- E2E Integrated Test Completed ---

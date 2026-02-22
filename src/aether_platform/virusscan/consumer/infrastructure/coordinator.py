@@ -7,7 +7,9 @@ import clamd
 from dependency_injector.wiring import Provide, inject
 
 from aether_platform.virusscan.common.queue.provider import (
-    QueueProvider, StateStoreProvider)
+    QueueProvider,
+    StateStoreProvider,
+)
 
 
 class ClusterCoordinator:
@@ -40,10 +42,10 @@ class ClusterCoordinator:
         self.current_epoch = 0
         self.last_heartbeat = 0
 
-    def _get_active_node_count(self) -> int:
+    async def _get_active_node_count(self) -> int:
         """Internal helper to count the number of live nodes in the cluster."""
         try:
-            nodes = self.state_store.smembers("clamav:active_nodes")
+            nodes = await self.state_store.smembers("clamav:active_nodes")
             active_count = 0
             for node_bin in nodes:
                 node = (
@@ -51,11 +53,11 @@ class ClusterCoordinator:
                     if isinstance(node_bin, bytes)
                     else str(node_bin)
                 )
-                heartbeat = self.state_store.get(f"clamav:heartbeat:{node}")
+                heartbeat = await self.state_store.get(f"clamav:heartbeat:{node}")
                 if heartbeat:
                     active_count += 1
                 else:
-                    self.state_store.srem("clamav:active_nodes", node)
+                    await self.state_store.srem("clamav:active_nodes", node)
             return active_count
         except Exception as e:
             self.logger.warning(f"Failed to count active nodes: {e}")
@@ -70,7 +72,11 @@ class ClusterCoordinator:
             cd = clamd.ClamdUnixSocket(path=url.path)
 
         self.logger.info("Triggering ClamAV Reload...")
-        cd.reload()
+        try:
+            cd.reload()
+        except Exception as e:
+            self.logger.error(f"Reload command failed: {e}")
+            return
 
         start_check = time.time()
         while time.time() - start_check < 60:
@@ -82,9 +88,9 @@ class ClusterCoordinator:
                 pass
             time.sleep(2)
 
-    def _handle_scale_down(self, target_epoch: int):
+    async def _handle_scale_down(self, target_epoch: int):
         """Internal helper to clear surge requests once all nodes have synchronized."""
-        nodes = self.state_store.smembers("clamav:active_nodes")
+        nodes = await self.state_store.smembers("clamav:active_nodes")
         all_updated = True
         for node_bin in nodes:
             node = (
@@ -92,21 +98,24 @@ class ClusterCoordinator:
                 if isinstance(node_bin, bytes)
                 else str(node_bin)
             )
-            hb_raw = self.state_store.get(f"clamav:heartbeat:{node}")
+            hb_raw = await self.state_store.get(f"clamav:heartbeat:{node}")
             if hb_raw:
                 hb = (
                     hb_raw.decode("utf-8") if isinstance(hb_raw, bytes) else str(hb_raw)
                 )
-                _, epoch = hb.split("|")
-                if int(epoch) < target_epoch:
-                    all_updated = False
-                    break
+                try:
+                    _, epoch = hb.split("|")
+                    if int(epoch) < target_epoch:
+                        all_updated = False
+                        break
+                except ValueError:
+                    continue
 
         if all_updated:
             self.logger.info("All nodes updated. Terminating surge request.")
-            self.state_store.delete("clamav:scaling_request")
+            await self.state_store.delete("clamav:scaling_request")
 
-    def heartbeat(self):
+    async def heartbeat(self):
         """
         Publishes a heartbeat to the cluster registry.
         Should be called periodically in the main loop.
@@ -118,8 +127,10 @@ class ClusterCoordinator:
         try:
             heartbeat_key = f"clamav:heartbeat:{self.pod_name}"
             # Heartbeat value includes pod name and current epoch for monitoring
-            self.state_store.set(heartbeat_key, f"{now}|{self.current_epoch}", ex=60)
-            self.state_store.sadd("clamav:active_nodes", self.pod_name)
+            await self.state_store.set(
+                heartbeat_key, f"{now}|{self.current_epoch}", ex=60
+            )
+            await self.state_store.sadd("clamav:active_nodes", self.pod_name)
             self.logger.debug(
                 f"Heartbeat sent for {self.pod_name} (Epoch: {self.current_epoch})"
             )
@@ -127,41 +138,45 @@ class ClusterCoordinator:
         except Exception as e:
             self.logger.warning(f"Failed to send heartbeat: {e}")
 
-    def handle_sequential_update(self):
+    async def handle_sequential_update(self):
         """
         Main coordination logic for performing zero-downtime reloads.
         Uses surge scaling to maintain capacity while nodes reload sequentially.
         """
-        target_info = self.state_store.mget(
+        target_info = await self.state_store.mget(
             "clamav:target_epoch", "clamav:target_epoch_updated_at"
         )
         if not target_info or not target_info[0]:
             return
 
         target_epoch_raw = target_info[0]
-        target_epoch = int(
-            target_epoch_raw.decode("utf-8")
-            if isinstance(target_epoch_raw, bytes)
-            else target_epoch_raw
-        )
+        try:
+            target_epoch = int(
+                target_epoch_raw.decode("utf-8")
+                if isinstance(target_epoch_raw, bytes)
+                else target_epoch_raw
+            )
+        except (ValueError, TypeError):
+            return
+
         if target_epoch <= self.current_epoch:
             return
 
         lock_key = "clamav:update_lock"
         lock_ttl = 600
 
-        if self.state_store.set(lock_key, self.pod_name, ex=lock_ttl, nx=True):
+        if await self.state_store.set(lock_key, self.pod_name, ex=lock_ttl, nx=True):
             self.logger.info(f"Acquired update lock. Updating to epoch {target_epoch}")
             try:
                 deployment_name = os.getenv("DEPLOYMENT_NAME")
-                active_nodes = self._get_active_node_count()
+                active_nodes = await self._get_active_node_count()
 
                 if active_nodes == 1 and deployment_name:
                     self.logger.info(
                         "Single node detected. Requesting Surge (Scale-up) and returning."
                     )
-                    self.state_store.delete("clamav:scaling_request")
-                    self.queue_provider.push("clamav:scaling_request", "surge")
+                    await self.state_store.delete("clamav:scaling_request")
+                    await self.queue_provider.push("clamav:scaling_request", "surge")
                     return
 
                 # Trigger ClamAV Reload
@@ -169,9 +184,9 @@ class ClusterCoordinator:
                 self.current_epoch = target_epoch
 
                 # Check if we should scale back down
-                self._handle_scale_down(target_epoch)
+                await self._handle_scale_down(target_epoch)
 
             except Exception as e:
                 self.logger.error(f"Error during coordinated reload: {e}")
             finally:
-                self.state_store.delete(lock_key)
+                await self.state_store.delete(lock_key)

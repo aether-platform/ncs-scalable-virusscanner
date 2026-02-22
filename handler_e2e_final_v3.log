@@ -1,0 +1,14 @@
+Traceback (most recent call last):
+  File "/mnt/c/workspace/vibecoding-platform/app/ncs/virusscanner/image/.venv/bin/virus-scanner-handler", line 4, in <module>
+    from aether_platform.virusscan.consumer.main import main
+  File "/mnt/c/workspace/vibecoding-platform/app/ncs/virusscanner/image/src/aether_platform/virusscan/consumer/main.py", line 21, in <module>
+    from .containers import Container
+  File "/mnt/c/workspace/vibecoding-platform/app/ncs/virusscanner/image/src/aether_platform/virusscan/consumer/containers.py", line 19, in <module>
+    class Container(containers.DeclarativeContainer):
+    ...<65 lines>...
+        )
+  File "/mnt/c/workspace/vibecoding-platform/app/ncs/virusscanner/image/src/aether_platform/virusscan/consumer/containers.py", line 21, in Container
+    config.from_env()
+    ~~~~~~~~~~~~~~~^^
+  File "src/dependency_injector/providers.pyx", line 2384, in dependency_injector.providers.Configuration.from_env
+TypeError: from_env() takes at least 1 positional argument (0 given)

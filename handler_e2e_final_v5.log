@@ -1,0 +1,13 @@
+Traceback (most recent call last):
+  File "/mnt/c/workspace/vibecoding-platform/app/ncs/virusscanner/image/.venv/bin/virus-scanner-handler", line 10, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/mnt/c/workspace/vibecoding-platform/app/ncs/virusscanner/image/src/aether_platform/virusscan/consumer/main.py", line 110, in main
+    serve()
+    ~~~~~^^
+  File "/mnt/c/workspace/vibecoding-platform/app/ncs/virusscanner/image/.venv/lib/python3.13/site-packages/dependency_injector/wiring.py", line 1199, in _patched
+    return fn(*args, **kwargs)
+  File "/mnt/c/workspace/vibecoding-platform/app/ncs/virusscanner/image/src/aether_platform/virusscan/consumer/main.py", line 44, in serve
+    plugins=[PrometheusPlugin(config=prometheus_config)],
+             ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: 'NoneType' object is not callable
