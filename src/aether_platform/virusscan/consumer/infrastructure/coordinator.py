@@ -1,8 +1,13 @@
+import logging
 import os
 import time
 from urllib.parse import urlparse
 
 import clamd
+from dependency_injector.wiring import Provide, inject
+
+from aether_platform.virusscan.common.queue.provider import (
+    QueueProvider, StateStoreProvider)
 
 
 class ClusterCoordinator:
@@ -11,6 +16,29 @@ class ClusterCoordinator:
     Uses StateStoreProvider as a distributed state store for heartbeats and Surge locks,
     and QueueProvider for emitting surge scaling requests.
     """
+
+    @inject
+    def __init__(
+        self,
+        queue_provider: QueueProvider = Provide["queue_provider"],
+        state_store: StateStoreProvider = Provide["state_store_provider"],
+        clamd_url: str = Provide["settings.clamd_url"],
+    ):
+        """
+        Initializes the cluster coordinator.
+
+        Args:
+            queue_provider: Distributed queue provider for messaging.
+            state_store: Distributed state store provider for cluster state.
+            clamd_url: URL for the local clamd instance.
+        """
+        self.queue_provider = queue_provider
+        self.state_store = state_store
+        self.clamd_url = clamd_url
+        self.logger = logging.getLogger(__name__)
+        self.pod_name = os.getenv("HOSTNAME", "unknown-pod")
+        self.current_epoch = 0
+        self.last_heartbeat = 0
 
     def _get_active_node_count(self) -> int:
         """Internal helper to count the number of live nodes in the cluster."""

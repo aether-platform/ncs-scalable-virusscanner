@@ -5,10 +5,10 @@ from concurrent import futures
 import grpc
 from dependency_injector import providers
 from dependency_injector.wiring import Provide, inject
-
 # Envoy Protos
 from envoy.service.ext_proc.v3 import external_processor_pb2 as ext_proc
-from envoy.service.ext_proc.v3 import external_processor_pb2_grpc as ext_proc_grpc
+from envoy.service.ext_proc.v3 import \
+    external_processor_pb2_grpc as ext_proc_grpc
 from envoy.type.v3 import http_status_pb2
 
 from ..core.containers import Container, FeatureFlagService, create_container

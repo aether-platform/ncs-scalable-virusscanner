@@ -2,16 +2,14 @@ import logging
 from typing import Any, Iterator
 
 import grpc
-from envoy.service.ext_proc.v3 import (
-    external_processor_pb2,
-    external_processor_pb2_grpc,
-)
+from envoy.service.ext_proc.v3 import (external_processor_pb2,
+                                       external_processor_pb2_grpc)
 from envoy.type.v3 import http_status_pb2
 
-from aether_platform.intelligent_cache.application.service import (
-    IntelligentCacheService,
-)
-from aether_platform.virusscan.producer.application.orchestrator import ScanOrchestrator
+from aether_platform.intelligent_cache.application.service import \
+    IntelligentCacheService
+from aether_platform.virusscan.producer.application.orchestrator import \
+    ScanOrchestrator
 
 logger = logging.getLogger(__name__)
 

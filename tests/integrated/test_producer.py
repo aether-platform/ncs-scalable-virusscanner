@@ -6,15 +6,14 @@ import redis
 
 # Add src to path to import generated protos
 src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../src"))
-producer_path = os.path.join(src_path, "virus_scanner/producer")
-sys.path.append(src_path)
-sys.path.append(producer_path)
+sys.path.insert(0, src_path)
 
-from virus_scanner.producer.envoy.config.core.v3 import base_pb2  # noqa: E402
-from virus_scanner.producer.envoy.service.ext_proc.v3 import (  # noqa: E402
-    external_processor_pb2,
-    external_processor_pb2_grpc,
-)
+producer_path = os.path.join(src_path, "aether_platform/virusscan/producer")
+sys.path.insert(0, producer_path)
+
+from envoy.config.core.v3 import base_pb2  # noqa: E402
+from envoy.service.ext_proc.v3 import external_processor_pb2  # noqa: E402
+from envoy.service.ext_proc.v3 import external_processor_pb2_grpc
 
 
 def test_producer_priority_flow():

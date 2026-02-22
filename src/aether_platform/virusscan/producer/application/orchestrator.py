@@ -8,10 +8,10 @@ from dependency_injector import providers
 from dependency_injector.wiring import Provide, inject
 
 from aether_platform.virusscan.producer.containers import ProducerContainer
-from aether_platform.virusscan.producer.domain.models import ScanResult, ScanStatus
-from aether_platform.virusscan.producer.infrastructure.redis_adapter import (
-    RedisScanAdapter,
-)
+from aether_platform.virusscan.producer.domain.models import (ScanResult,
+                                                              ScanStatus)
+from aether_platform.virusscan.producer.infrastructure.redis_adapter import \
+    RedisScanAdapter
 
 logger = logging.getLogger(__name__)
 

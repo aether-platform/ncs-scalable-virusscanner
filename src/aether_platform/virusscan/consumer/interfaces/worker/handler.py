@@ -5,7 +5,6 @@ from dependency_injector.wiring import Provide, inject
 
 from aether_platform.virusscan.common.queue.provider import QueueProvider
 from aether_platform.virusscan.consumer.application.service import ScannerTaskService
-from aether_platform.virusscan.consumer.containers import Container
 from aether_platform.virusscan.consumer.infrastructure.coordinator import (
     ClusterCoordinator,
 )
@@ -21,10 +20,10 @@ class VirusScanHandler:
     @inject
     def __init__(
         self,
-        queue_provider: QueueProvider = Provide[Container.queue_provider],
-        settings: Settings = Provide[Container.settings],
-        coordinator: ClusterCoordinator = Provide[Container.coordinator],
-        task_service: ScannerTaskService = Provide[Container.task_service],
+        queue_provider: QueueProvider = Provide["queue_provider"],
+        settings: Settings = Provide["settings"],
+        coordinator: ClusterCoordinator = Provide["coordinator"],
+        task_service: ScannerTaskService = Provide["task_service"],
     ):
         """
         Initializes the handler worker.
@@ -55,7 +54,7 @@ class VirusScanHandler:
                 # 1. Cluster Coordination (Heartbeat & Reload check)
                 self.coordinator.heartbeat()
                 self.coordinator.handle_sequential_update()
-
+                # TODO: 優先キューと、通常キューの考慮が足りない。5タスク走らせて、4つは優先、1つは通常。といった形や、4つは優先だが、優先タスクが無い場合、通常キューを実施といった考慮が必要。
                 # 2. Queue Polling (Wait for task)
                 result = self.provider.pop(self.settings.queues, timeout=2)
                 if not result:

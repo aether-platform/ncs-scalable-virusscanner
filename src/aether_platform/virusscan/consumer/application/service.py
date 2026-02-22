@@ -3,10 +3,11 @@ import logging
 import time
 from typing import Any, Callable
 
+from dependency_injector.wiring import Provide, inject
+
 from aether_platform.virusscan.common.queue.provider import QueueProvider
-from aether_platform.virusscan.consumer.infrastructure.engine_client import (
-    ScannerEngineClient,
-)
+from aether_platform.virusscan.consumer.infrastructure.engine_client import \
+    ScannerEngineClient
 from aether_platform.virusscan.consumer.settings import Settings
 
 
@@ -121,12 +122,13 @@ class ScannerTaskService:
         except Exception as e:
             self.logger.warning(f"Failed to record metrics: {e}")
 
+    @inject
     def __init__(
         self,
-        queue_provider: QueueProvider,
-        settings: Settings,
-        engine: ScannerEngineClient,
-        provider_factory: Callable[..., Any],
+        queue_provider: QueueProvider = Provide["queue_provider"],
+        settings: Settings = Provide["settings"],
+        engine: ScannerEngineClient = Provide["engine"],
+        provider_factory: Callable[..., Any] = Provide["data_provider"],
     ):
         """
         Initializes the task service.

@@ -13,6 +13,7 @@ from .interfaces.worker.handler import VirusScanHandler
 @inject
 def serve(handler: VirusScanHandler = Provide[Container.handler]):
     """Starts the VirusScanner Consumer (Worker)."""
+    # TODO: 優先４，通常1で構成する？
     asyncio.run(handler.run())
 
 

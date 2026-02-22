@@ -4,8 +4,10 @@ from unittest.mock import MagicMock
 
 import pytest
 import redis
-from virus_scanner.consumer.service import ScannerTaskService
-from virus_scanner.consumer.settings import Settings
+
+from aether_platform.virusscan.consumer.application.service import \
+    ScannerTaskService
+from aether_platform.virusscan.consumer.settings import Settings
 
 
 @pytest.fixture

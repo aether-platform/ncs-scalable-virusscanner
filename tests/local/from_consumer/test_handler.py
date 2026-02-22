@@ -26,6 +26,14 @@ def settings():
     )
 
 
+from unittest.mock import AsyncMock
+
+
+@pytest.fixture
+def mock_queue_provider():
+    return MagicMock()
+
+
 @pytest.fixture
 def mock_coordinator():
     return MagicMock()
@@ -33,29 +41,30 @@ def mock_coordinator():
 
 @pytest.fixture
 def mock_task_service():
-    return MagicMock()
+    return AsyncMock()
 
 
-def test_handler_loop_iteration(
-    mock_redis, settings, mock_coordinator, mock_task_service
+@pytest.mark.asyncio
+async def test_handler_loop_iteration(
+    mock_queue_provider, settings, mock_coordinator, mock_task_service
 ):
     """Test one iteration of the handler loop"""
     handler = VirusScanHandler(
-        redis_client=mock_redis,
+        queue_provider=mock_queue_provider,
         settings=settings,
         coordinator=mock_coordinator,
         task_service=mock_task_service,
     )
 
-    # Mock Redis blpop to return a task and then raise an exception to break the loop for testing
+    # Mock provider.pop to return a task and then raise an exception to break the loop for testing
     task_data = "task-123|STREAM|123456|chunks-key"
-    mock_redis.blpop.side_effect = [
-        (b"scan_normal", task_data.encode("utf-8")),
+    mock_queue_provider.pop.side_effect = [
+        ("scan_normal", task_data.encode("utf-8")),
         KeyboardInterrupt("Stop loop for testing"),
     ]
 
     try:
-        handler.run()
+        await handler.run()
     except KeyboardInterrupt:
         pass
 

@@ -6,9 +6,8 @@ from dependency_injector.wiring import Provide, inject
 from envoy.service.ext_proc.v3 import external_processor_pb2_grpc
 
 from aether_platform.virusscan.producer.containers import ProducerContainer
-from aether_platform.virusscan.producer.interfaces.grpc.handler import (
-    VirusScannerExtProcHandler,
-)
+from aether_platform.virusscan.producer.interfaces.grpc.handler import \
+    VirusScannerExtProcHandler
 
 logger = logging.getLogger(__name__)
 

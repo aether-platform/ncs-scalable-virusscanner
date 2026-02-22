@@ -2,9 +2,9 @@
 """Client and server classes corresponding to protobuf-defined services."""
 
 import grpc
-from envoy.service.ext_proc.v3 import (
-    external_processor_pb2 as envoy_dot_service_dot_ext__proc_dot_v3_dot_external__processor__pb2,
-)
+from envoy.service.ext_proc.v3 import \
+    external_processor_pb2 as \
+    envoy_dot_service_dot_ext__proc_dot_v3_dot_external__processor__pb2
 
 GRPC_GENERATED_VERSION = "1.76.0"
 GRPC_VERSION = grpc.__version__

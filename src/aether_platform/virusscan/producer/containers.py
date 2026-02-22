@@ -4,16 +4,12 @@ import redis
 from dependency_injector import containers, providers
 from flagsmith import Flagsmith
 
-from aether_platform.intelligent_cache.application.service import (
-    IntelligentCacheService,
-)
+from aether_platform.intelligent_cache.application.service import \
+    IntelligentCacheService
 from aether_platform.intelligent_cache.domain.policy import BypassPolicy
 
-from ..common.providers import (
-    InlineStreamProvider,
-    RedisStreamProvider,
-    SharedDiskStreamProvider,
-)
+from ..common.providers import (InlineStreamProvider, RedisStreamProvider,
+                                SharedDiskStreamProvider)
 from ..common.queue.provider import RedisQueueProvider, RedisStateStoreProvider
 from .application.orchestrator import ScanOrchestrator
 from .infrastructure.redis_adapter import RedisScanAdapter
