@@ -4,7 +4,6 @@ from unittest.mock import MagicMock
 
 import pytest
 import redis
-
 from virus_scanner.consumer.service import ScannerTaskService
 from virus_scanner.consumer.settings import Settings
 

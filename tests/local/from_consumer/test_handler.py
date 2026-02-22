@@ -3,8 +3,10 @@ from unittest.mock import MagicMock
 import pytest
 import redis
 
-from virus_scanner.consumer.handler import VirusScanHandler
-from virus_scanner.consumer.settings import Settings
+from aether_platform.virusscan.consumer.interfaces.worker.handler import (
+    VirusScanHandler,
+)
+from aether_platform.virusscan.consumer.settings import Settings
 
 
 @pytest.fixture

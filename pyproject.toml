@@ -25,20 +25,22 @@ all = [
 ]
 
 [project.scripts]
-virus-scanner-handler = "virus_scanner.consumer.main:main"
-virus-scanner-producer = "virus_scanner.producer.main:serve"
-virus-scanner-restart = "virus_scanner.consumer.main:rollout_restart"
-virus-scanner-update = "virus_scanner.consumer.main:set_target_epoch"
+virus-scanner-handler = "aether_platform.virusscan.consumer.main:main"
+virus-scanner-producer = "aether_platform.virusscan.producer.main:serve"
+virus-scanner-restart = "aether_platform.virusscan.consumer.main:rollout_restart"
+virus-scanner-update = "aether_platform.virusscan.consumer.main:set_target_epoch"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/virus_scanner"]
+packages = ["src/aether_platform"]
 
 [dependency-groups]
 dev = [
+    "flake8>=7.3.0",
+    "flake8-class-attributes-order>=0.3.0",
     "pytest>=9.0.2",
     "pytest-mock>=3.15.1",
 ]

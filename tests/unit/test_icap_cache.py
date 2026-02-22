@@ -2,7 +2,6 @@ import hashlib
 from unittest.mock import MagicMock
 
 import pytest
-
 from virus_scanner.producer.service import StreamScannerService
 
 

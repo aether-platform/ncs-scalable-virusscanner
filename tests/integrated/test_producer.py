@@ -10,8 +10,8 @@ producer_path = os.path.join(src_path, "virus_scanner/producer")
 sys.path.append(src_path)
 sys.path.append(producer_path)
 
-from virus_scanner.producer.envoy.config.core.v3 import base_pb2
-from virus_scanner.producer.envoy.service.ext_proc.v3 import (
+from virus_scanner.producer.envoy.config.core.v3 import base_pb2  # noqa: E402
+from virus_scanner.producer.envoy.service.ext_proc.v3 import (  # noqa: E402
     external_processor_pb2,
     external_processor_pb2_grpc,
 )

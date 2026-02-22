@@ -1,0 +1,59 @@
+services:
+  envoy:
+    image: envoyproxy/envoy:v1.30-latest
+    command:
+      [
+        "envoy",
+        "-c",
+        "/etc/envoy/envoy.yaml",
+        "-l",
+        "info",
+        "--component-log-level",
+        "ext_proc:debug",
+      ]
+    volumes:
+      - ./envoy.yaml:/etc/envoy/envoy.yaml
+    ports:
+      - "8080:8080"
+      - "9901:9901"
+    depends_on:
+      - scan-manager
+      - echo-server
+
+  scan-manager:
+    build: ./scan_service
+    command: ["scan-producer"]
+    volumes:
+      - ./scan_service:/app
+    environment:
+      - REDIS_HOST=redis
+      - FLAGSMITH_ENV_KEY=${FLAGSMITH_ENV_KEY}
+    depends_on:
+      - redis
+
+  scan-worker:
+    build: ./scan_service
+    command: ["scan-worker"]
+    volumes:
+      - ./scan_service:/app
+    environment:
+      - REDIS_HOST=redis
+      - CLAMAV_HOST=clamav
+    depends_on:
+      - redis
+      - clamav
+
+  clamav:
+    image: clamav/clamav:latest
+    ports:
+      - "3310:3310"
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  echo-server:
+    image: ealen/echo-server
+    ports:
+      - "80:80"

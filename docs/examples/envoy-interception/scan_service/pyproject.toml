@@ -1,0 +1,42 @@
+[project]
+name = "scan-service"
+version = "0.1.0"
+description = "Envoy External Processing Virus Scanner"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "redis>=7.1.0",
+    "dependency-injector>=4.48.3",
+    "openfeature-sdk>=0.7.1",
+    "flagsmith>=3.4.0",
+    "pydantic-settings>=2.1.0",
+]
+
+[project.optional-dependencies]
+consumer = [
+    "clamd>=1.0.2",
+]
+producer = [
+    "grpcio>=1.59.0",
+    "protobuf>=4.24.4",
+    "xds-protos>=1.59.0",
+]
+all = [
+    "scan-service[consumer,producer]",
+]
+
+[project.scripts]
+scan-producer = "scanning.producer.main:serve"
+scan-worker = "scanning.consumer.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scanning"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+]
