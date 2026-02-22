@@ -1,11 +1,11 @@
 import abc
-from typing import Any, Iterator, Optional, Protocol
+from typing import Any, AsyncIterator, Optional, Protocol
 
 
 class RedisClient(Protocol):
     """Protocol for Redis client to decouple providers from the concrete redis.Redis class."""
 
-    def blmove(
+    async def blmove(
         self,
         src: str,
         dest: str,
@@ -14,35 +14,35 @@ class RedisClient(Protocol):
         dest_at: str = "RIGHT",
     ) -> Optional[bytes]: ...
 
-    def get(self, key: str) -> Optional[Any]: ...
+    async def get(self, key: str) -> Optional[Any]: ...
 
-    def set(self, key: str, value: Any, ex: Optional[int] = None) -> Any: ...
+    async def set(self, key: str, value: Any, ex: Optional[int] = None) -> Any: ...
 
-    def rpush(self, key: str, *values: Any) -> int: ...
+    async def rpush(self, key: str, *values: Any) -> int: ...
 
-    def delete(self, *keys: str) -> int: ...
+    async def delete(self, *keys: str) -> int: ...
 
-    def expire(self, key: str, time: int) -> bool: ...
+    async def expire(self, key: str, time: int) -> bool: ...
 
 
 class DataProvider(abc.ABC):
     @abc.abstractmethod
-    def get_chunks(self) -> Iterator[bytes]:
-        """Returns an iterator of binary chunks."""
+    def get_chunks(self) -> AsyncIterator[bytes]:
+        """Returns an async iterator of binary chunks."""
         pass
 
     @abc.abstractmethod
-    def push_chunk(self, chunk: bytes):
+    async def push_chunk(self, chunk: bytes):
         """Pushes a chunk of data (Producer side)."""
         pass
 
     @abc.abstractmethod
-    def finalize_push(self):
+    async def finalize_push(self):
         """Finalizes the data push (Producer side)."""
         pass
 
     @abc.abstractmethod
-    def finalize(self, success: bool, is_virus: bool):
+    async def finalize(self, success: bool, is_virus: bool):
         """Called after scanning is complete."""
         pass
 

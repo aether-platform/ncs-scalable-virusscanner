@@ -11,9 +11,23 @@ sys.path.insert(0, src_path)
 producer_path = os.path.join(src_path, "aether_platform/virusscan/producer")
 sys.path.insert(0, producer_path)
 
+# Manually import core and shared dependencies in order to safely populate the descriptor pool
+from envoy.annotations import deprecation_pb2  # noqa: F401
 from envoy.config.core.v3 import base_pb2  # noqa: E402
-from envoy.service.ext_proc.v3 import external_processor_pb2  # noqa: E402
-from envoy.service.ext_proc.v3 import external_processor_pb2_grpc
+from envoy.service.ext_proc.v3 import (
+    external_processor_pb2,  # noqa: E402
+    external_processor_pb2_grpc,
+)
+from envoy.type.v3 import percent_pb2, semantic_version_pb2  # noqa: F401
+from google.protobuf import (  # noqa: F401
+    any_pb2,
+    descriptor_pb2,  # noqa: F401
+    struct_pb2,
+    wrappers_pb2,
+)
+from udpa.annotations import migrate_pb2, status_pb2, versioning_pb2  # noqa: F401
+from validate import validate_pb2  # noqa: F401
+from xds.core.v3 import context_params_pb2  # noqa: F401
 
 
 def test_producer_priority_flow():

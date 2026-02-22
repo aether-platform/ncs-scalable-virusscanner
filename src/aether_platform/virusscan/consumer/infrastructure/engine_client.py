@@ -1,5 +1,5 @@
+import asyncio
 import logging
-import socket
 import struct
 from typing import Tuple
 
@@ -9,7 +9,7 @@ from ...common.providers import DataProvider
 class ScannerEngineClient:
     """
     Infrastructure client for interacting with the ClamAV (clamd) scanning engine.
-    Handles the low-level INSTREAM protocol.
+    Handles the low-level INSTREAM protocol asynchronously.
     """
 
     def __init__(self, clamd_url: str):
@@ -26,9 +26,9 @@ class ScannerEngineClient:
         self.port = url.port or 3310
         self.logger = logging.getLogger(__name__)
 
-    def scan(self, provider: DataProvider) -> Tuple[bool, str]:
+    async def scan(self, provider: DataProvider) -> Tuple[bool, str]:
         """
-        Performs a virus scan by streaming data from the provider to ClamAV.
+        Performs a virus scan by streaming data from the provider to ClamAV asynchronously.
 
         Args:
             provider: A DataProvider strategy that supplies the content to scan.
@@ -36,25 +36,29 @@ class ScannerEngineClient:
         Returns:
             A tuple of (is_infected, message).
         """
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(30)
+        reader, writer = await asyncio.open_connection(self.host, self.port)
         try:
-            s.connect((self.host, self.port))
-            s.send(b"zINSTREAM\0")
+            writer.write(b"zINSTREAM\0")
+            await writer.drain()
 
             scan_success = False
             response = ""
             try:
-                for chunk in provider.get_chunks():
-                    s.send(struct.pack("!I", len(chunk)))
-                    s.send(chunk)
+                async for chunk in provider.get_chunks():
+                    writer.write(struct.pack("!I", len(chunk)))
+                    writer.write(chunk)
+                    await writer.drain()
 
-                s.send(struct.pack("!I", 0))
-                response = s.recv(4096).decode("utf-8").strip()
+                writer.write(struct.pack("!I", 0))
+                await writer.drain()
+
+                # Read response
+                data = await reader.read(4096)
+                response = data.decode("utf-8").strip()
                 scan_success = True
             finally:
-                # Let provider cleanup
-                provider.finalize(
+                # Let provider cleanup (now async)
+                await provider.finalize(
                     scan_success, "FOUND" in response if scan_success else False
                 )
 
@@ -67,4 +71,5 @@ class ScannerEngineClient:
             self.logger.error(f"Engine scan error: {e}")
             raise
         finally:
-            s.close()
+            writer.close()
+            await writer.wait_closed()

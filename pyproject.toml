@@ -7,6 +7,9 @@ requires-python = ">=3.11"
 dependencies = [
     "redis>=7.1.0",
     "click>=8.3.1",
+    "litestar>=2.15.0",
+    "uvicorn>=0.34.0",
+    "prometheus-client>=0.21.1",
 ]
 
 [project.optional-dependencies]
