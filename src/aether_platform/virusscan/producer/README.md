@@ -92,7 +92,6 @@ http_filters:
         response_header_mode: SEND
         response_body_mode: BUFFERED
       message_timeout: 30s
-      processing_timeout: 30s
 ```
 
 ### Cluster definition
