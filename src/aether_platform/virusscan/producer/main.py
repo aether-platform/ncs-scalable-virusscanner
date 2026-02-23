@@ -6,10 +6,10 @@ import sys
 
 import grpc.aio as grpc
 from dependency_injector.wiring import Provide
-from prometheus_client import start_http_server
 
 # 1. First, import core google protobuf descriptors to populate descriptor pool
 from google.protobuf import descriptor_pb2  # noqa: F401
+from prometheus_client import start_http_server
 
 
 # --- Support for Envoy Protos ---

@@ -3,13 +3,15 @@ import time
 from typing import Any, AsyncIterator
 
 import grpc
-from envoy.service.ext_proc.v3 import (external_processor_pb2,
-                                       external_processor_pb2_grpc)
+from envoy.service.ext_proc.v3 import (
+    external_processor_pb2,
+    external_processor_pb2_grpc,
+)
 
-from aether_platform.intelligent_cache.application.service import \
-    IntelligentCacheService
-from aether_platform.virusscan.producer.application.orchestrator import \
-    ScanOrchestrator
+from aether_platform.intelligent_cache.application.service import (
+    IntelligentCacheService,
+)
+from aether_platform.virusscan.producer.application.orchestrator import ScanOrchestrator
 from aether_platform.virusscan.producer.metrics import (
     ACTIVE_SESSIONS,
     BODY_BYTES_TOTAL,

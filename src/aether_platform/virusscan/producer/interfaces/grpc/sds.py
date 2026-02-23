@@ -1,21 +1,20 @@
-import logging
 import datetime
+import logging
 import uuid
 from typing import AsyncIterator
 
 import grpc
 from cryptography import x509
-
-from aether_platform.virusscan.producer.metrics import SDS_CERTS_GENERATED, SDS_ERRORS
-from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-
-from envoy.service.secret.v3 import sds_pb2_grpc
-from envoy.service.discovery.v3 import discovery_pb2
-from envoy.extensions.transport_sockets.tls.v3 import secret_pb2, common_pb2
+from cryptography.x509.oid import NameOID
 from envoy.config.core.v3 import base_pb2
+from envoy.extensions.transport_sockets.tls.v3 import common_pb2, secret_pb2
+from envoy.service.discovery.v3 import discovery_pb2
+from envoy.service.secret.v3 import sds_pb2_grpc
 from google.protobuf import any_pb2
+
+from aether_platform.virusscan.producer.metrics import SDS_CERTS_GENERATED, SDS_ERRORS
 
 logger = logging.getLogger(__name__)
 
