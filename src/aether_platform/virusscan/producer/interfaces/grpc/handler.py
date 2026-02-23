@@ -5,7 +5,6 @@ from typing import Any, AsyncIterator
 import grpc
 from envoy.service.ext_proc.v3 import (external_processor_pb2,
                                        external_processor_pb2_grpc)
-from envoy.type.v3 import http_status_pb2
 
 from aether_platform.intelligent_cache.application.service import \
     IntelligentCacheService
@@ -223,51 +222,30 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                         BODY_SIZE_BYTES.labels(method=current_method).observe(body_total_bytes)
                         BODY_BYTES_TOTAL.labels(method=current_method).inc(body_total_bytes)
 
+                        REQUEST_DURATION.labels(method=current_method).observe(
+                            time.monotonic() - request_start
+                        )
+
                         if result.is_infected():
-                            SCAN_SESSIONS.labels(result="infected").inc()
-                            REQUESTS_TOTAL.labels(method=current_method, result="blocked").inc()
-                            REQUEST_DURATION.labels(method=current_method).observe(
-                                time.monotonic() - request_start
-                            )
-
-                            if is_request_phase:
-                                # Upload: 403 Forbidden before upstream receives the request
-                                logger.error(
-                                    f"BLOCKED (request): {result.virus_name} "
-                                    f"[{current_method} {current_path}]"
-                                )
-                                yield external_processor_pb2.ProcessingResponse(
-                                    immediate_response=external_processor_pb2.ImmediateResponse(
-                                        status=http_status_pb2.HttpStatus(
-                                            code=http_status_pb2.Forbidden
-                                        ),
-                                        body=f"Virus Detected: {result.virus_name}".encode("utf-8"),
-                                    )
-                                )
-                                return
-
-                            # Download: 200 OK already sent to client — reset connection.
-                            # User notification is handled via Console webhook (consumer side).
+                            # Reset connection. Webhook notification handled by consumer.
                             logger.error(
-                                f"INFECTED (response): {result.virus_name} "
-                                f"[{current_method} {current_path}] — resetting connection"
+                                f"INFECTED: {result.virus_name} "
+                                f"[{current_method} {current_path}] — connection reset"
                             )
+                            SCAN_SESSIONS.labels(result="infected").inc()
+                            REQUESTS_TOTAL.labels(method=current_method, result="infected").inc()
                             await context.abort(
                                 grpc.StatusCode.ABORTED,
-                                f"Virus detected in response: {result.virus_name}",
+                                f"Virus detected: {result.virus_name}",
                             )
                             return
 
                         logger.info(f"CLEAN: {task_id}")
                         SCAN_SESSIONS.labels(result="clean").inc()
                         REQUESTS_TOTAL.labels(method=current_method, result="clean").inc()
-                        # Only cache for safe methods
                         if current_method in self._CACHEABLE_METHODS:
                             await self.cache.store_cache(current_path)
                             CACHE_OPS.labels(operation="store").inc()
-                        REQUEST_DURATION.labels(method=current_method).observe(
-                            time.monotonic() - request_start
-                        )
                         yield self._continue_response(is_request_phase, phase="body")
                     else:
                         yield self._continue_response(is_request_phase, phase="body")
