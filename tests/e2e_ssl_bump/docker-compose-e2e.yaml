@@ -49,10 +49,12 @@ services:
       - clamav
 
   envoy:
-    image: envoyproxy/envoy:v1.30-latest
-    command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "-l", "info"]
+    image: envoyproxy/envoy:v1.31-latest
+    entrypoint: ["envoy"]
+    command: ["-c", "/etc/envoy/envoy.yaml", "-l", "debug"]
+    user: root
     ports:
-      - "4433:443"
+      - "8443:8443"
     volumes:
       - ./envoy-e2e.yaml:/etc/envoy/envoy.yaml
       - ./certs:/etc/envoy/certs

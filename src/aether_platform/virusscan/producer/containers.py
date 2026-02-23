@@ -4,16 +4,21 @@ import redis.asyncio as redis
 from dependency_injector import containers, providers
 from flagsmith import Flagsmith
 
-from aether_platform.intelligent_cache.application.service import \
-    IntelligentCacheService
+from aether_platform.intelligent_cache.application.service import (
+    IntelligentCacheService,
+)
 from aether_platform.intelligent_cache.domain.policy import BypassPolicy
 
-from ..common.providers import (InlineStreamProvider, RedisStreamProvider,
-                                SharedDiskStreamProvider)
+from ..common.providers import (
+    InlineStreamProvider,
+    RedisStreamProvider,
+    SharedDiskStreamProvider,
+)
 from ..common.queue.provider import RedisQueueProvider, RedisStateStoreProvider
 from .application.orchestrator import ScanOrchestrator
 from .infrastructure.redis_adapter import RedisScanAdapter
 from .interfaces.grpc.handler import VirusScannerExtProcHandler
+from .interfaces.grpc.sds import SecretDiscoveryHandler
 from .settings import ProducerSettings
 
 
@@ -80,6 +85,13 @@ class ProducerContainer(containers.DeclarativeContainer):
         IntelligentCacheService,
         provider=state_store_provider,
         policy=bypass_policy,
+    )
+
+    # Secret Discovery Handler
+    sds_handler = providers.Singleton(
+        SecretDiscoveryHandler,
+        ca_cert_path=config.ca_cert_path | providers.Object("/etc/egress-ca/tls.crt"),
+        ca_key_path=config.ca_key_path | providers.Object("/etc/egress-ca/tls.key"),
     )
 
     # Interface

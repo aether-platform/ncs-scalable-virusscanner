@@ -1,0 +1,14 @@
+certificate_provider_instances:
+  cert_gen_instance:
+    name: envoy.certificate_providers.local_cert_gen
+    typed_config:
+      "@type": type.googleapis.com/envoy.extensions.certificate_providers.local_cert_gen.v3.LocalCertGenConfig
+      ca_certificate: { filename: "/tmp/ca.crt" }
+      ca_private_key: { filename: "/tmp/ca.key" }
+static_resources:
+  listeners: []
+admin:
+  address:
+    socket_address:
+      address: 0.0.0.0
+      port_value: 9901
