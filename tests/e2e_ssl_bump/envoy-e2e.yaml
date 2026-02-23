@@ -1,3 +1,11 @@
+# ================================================================
+# E2E Test: Envoy + SSL Bump (on_demand_secret) + ext_proc
+# Requires: envoyproxy/envoy:v1.37-latest (on_demand_secret merged Dec 2025)
+# ================================================================
+node:
+  id: e2e-test-node
+  cluster: e2e-test-cluster
+
 static_resources:
   listeners:
     - name: listener_https
@@ -10,11 +18,14 @@ static_resources:
           typed_config:
             "@type": type.googleapis.com/envoy.extensions.filters.listener.tls_inspector.v3.TlsInspector
       filter_chains:
-        - filters:
+        - filter_chain_match:
+            transport_protocol: tls
+          filters:
             - name: envoy.filters.network.http_connection_manager
               typed_config:
                 "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
-                stat_prefix: ingress_http
+                stat_prefix: https_forward
+                codec_type: AUTO
                 route_config:
                   name: local_route
                   virtual_hosts:
@@ -40,16 +51,31 @@ static_resources:
                   - name: envoy.filters.http.router
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+          # On-demand SDS: SNI-based dynamic certificate generation
           transport_socket:
             name: envoy.transport_sockets.tls
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
               common_tls_context:
-                tls_certificates:
-                  - certificate_chain:
-                      filename: /etc/envoy/certs/server.crt
-                    private_key:
-                      filename: /etc/envoy/certs/server.key
+                custom_tls_certificate_selector:
+                  name: on-demand
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.cert_selectors.on_demand_secret.v3.Config
+                    config_source:
+                      api_config_source:
+                        api_type: DELTA_GRPC
+                        transport_api_version: V3
+                        grpc_services:
+                          - envoy_grpc:
+                              cluster_name: sds_service
+                        set_node_on_first_message_only: true
+                    certificate_mapper:
+                      name: sni
+                      typed_config:
+                        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.cert_mappers.sni.v3.SNI
+                        default_value: "localhost"
+              disable_stateless_session_resumption: true
+              disable_stateful_session_resumption: true
 
   clusters:
     - name: echo_service
@@ -72,6 +98,20 @@ static_resources:
       http2_protocol_options: {}
       load_assignment:
         cluster_name: ext_proc_service
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: producer
+                      port_value: 50051
+    - name: sds_service
+      connect_timeout: 0.25s
+      type: LOGICAL_DNS
+      lb_policy: ROUND_ROBIN
+      http2_protocol_options: {}
+      load_assignment:
+        cluster_name: sds_service
         endpoints:
           - lb_endpoints:
               - endpoint:

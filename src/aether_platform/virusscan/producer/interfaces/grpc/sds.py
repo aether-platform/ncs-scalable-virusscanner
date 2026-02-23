@@ -1,9 +1,12 @@
 import logging
 import datetime
+import uuid
 from typing import AsyncIterator
 
 import grpc
 from cryptography import x509
+
+from aether_platform.virusscan.producer.metrics import SDS_CERTS_GENERATED, SDS_ERRORS
 from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -93,41 +96,86 @@ class SecretDiscoveryHandler(sds_pb2_grpc.SecretDiscoveryServiceServicer):
 
         async for request in request_iterator:
             resource_names = request.resource_names
-            logger.info(f"Received SDS request for: {resource_names}")
+            logger.info(f"StreamSDS request for: {resource_names}")
 
             resources = []
             for name in resource_names:
-                # Envoy's on_demand SDS uses the SNI as the secret name.
-                sni = name
                 try:
-                    cert_pem, key_pem, chain_pem = self._generate_cert(sni)
-
-                    secret = secret_pb2.Secret(
-                        name=name,
-                        tls_certificate=common_pb2.TlsCertificate(
-                            certificate_chain=base_pb2.DataSource(
-                                inline_bytes=cert_pem + chain_pem
-                            ),
-                            private_key=base_pb2.DataSource(
-                                inline_bytes=key_pem
-                            )
-                        )
-                    )
-
-                    any_secret = any_pb2.Any()
-                    any_secret.Pack(secret)
+                    resource = self._build_tls_certificate_secret(name)
+                    any_secret = resource.resource
                     resources.append(any_secret)
-                    logger.info(f"Generated dynamic cert for {sni}")
-
+                    SDS_CERTS_GENERATED.inc()
+                    logger.info(f"StreamSDS: generated cert for {name}")
                 except Exception as e:
-                    logger.error(f"Error generating cert for {sni}: {e}")
+                    SDS_ERRORS.inc()
+                    logger.error(f"StreamSDS: error generating cert for {name}: {e}")
 
             yield discovery_pb2.DiscoveryResponse(
                 version_info="1",
                 resources=resources,
                 type_url="type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret",
-                nonce=request.response_nonce
+                nonce=request.response_nonce,
             )
 
-    async def DeltaSecrets(self, request_iterator, context):
-        raise NotImplementedError("Delta SDS not implemented")
+    def _build_tls_certificate_secret(self, name: str) -> discovery_pb2.Resource:
+        """Build a Resource wrapping a TLS certificate Secret for the given name (SNI)."""
+        cert_pem, key_pem, chain_pem = self._generate_cert(name)
+
+        secret = secret_pb2.Secret(
+            name=name,
+            tls_certificate=common_pb2.TlsCertificate(
+                certificate_chain=base_pb2.DataSource(
+                    inline_bytes=cert_pem + chain_pem
+                ),
+                private_key=base_pb2.DataSource(
+                    inline_bytes=key_pem
+                ),
+            ),
+        )
+
+        any_secret = any_pb2.Any()
+        any_secret.Pack(secret)
+
+        return discovery_pb2.Resource(
+            name=name,
+            version=uuid.uuid4().hex[:8],
+            resource=any_secret,
+        )
+
+    async def DeltaSecrets(
+        self,
+        request_iterator: AsyncIterator[discovery_pb2.DeltaDiscoveryRequest],
+        context: grpc.ServicerContext,
+    ) -> AsyncIterator[discovery_pb2.DeltaDiscoveryResponse]:
+        """
+        Delta SDS for on_demand_secret certificate selector.
+        Envoy sends resource_names_subscribe with SNI hostnames.
+        We generate a certificate per hostname and return as DeltaDiscoveryResponse.
+        """
+        async for request in request_iterator:
+            subscribe = list(request.resource_names_subscribe)
+            unsubscribe = list(request.resource_names_unsubscribe)
+
+            if subscribe:
+                logger.info(f"DeltaSDS subscribe: {subscribe}")
+            if unsubscribe:
+                logger.debug(f"DeltaSDS unsubscribe: {unsubscribe}")
+
+            resources = []
+            for name in subscribe:
+                try:
+                    resource = self._build_tls_certificate_secret(name)
+                    resources.append(resource)
+                    SDS_CERTS_GENERATED.inc()
+                    logger.info(f"DeltaSDS: generated cert for {name}")
+                except Exception as e:
+                    SDS_ERRORS.inc()
+                    logger.error(f"DeltaSDS: error generating cert for {name}: {e}")
+
+            yield discovery_pb2.DeltaDiscoveryResponse(
+                system_version_info="1",
+                resources=resources,
+                type_url="type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret",
+                nonce=uuid.uuid4().hex[:8],
+                removed_resources=unsubscribe,
+            )

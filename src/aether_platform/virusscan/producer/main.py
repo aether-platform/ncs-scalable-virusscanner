@@ -6,6 +6,7 @@ import sys
 
 import grpc.aio as grpc
 from dependency_injector.wiring import Provide
+from prometheus_client import start_http_server
 
 # 1. First, import core google protobuf descriptors to populate descriptor pool
 from google.protobuf import descriptor_pb2  # noqa: F401
@@ -82,7 +83,12 @@ async def serve(
     sds_handler: SecretDiscoveryHandler = Provide[ProducerContainer.sds_handler],
     grpc_port: int = Provide[ProducerContainer.settings.provided.grpc_port],
 ):
-    """Starts the VirusScanner Producer (Async gRPC)."""
+    """Starts the VirusScanner Producer (Async gRPC + Prometheus metrics)."""
+    # Start Prometheus metrics HTTP server on port 8080
+    metrics_port = 8080
+    start_http_server(metrics_port)
+    logger.info(f"Prometheus metrics server started on port {metrics_port}")
+
     server = grpc.server()
     external_processor_pb2_grpc.add_ExternalProcessorServicer_to_server(handler, server)
     from envoy.service.secret.v3 import sds_pb2_grpc

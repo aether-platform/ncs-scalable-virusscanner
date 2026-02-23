@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Any, AsyncIterator
 
 import grpc
@@ -10,6 +11,15 @@ from aether_platform.intelligent_cache.application.service import \
     IntelligentCacheService
 from aether_platform.virusscan.producer.application.orchestrator import \
     ScanOrchestrator
+from aether_platform.virusscan.producer.metrics import (
+    ACTIVE_SESSIONS,
+    BODY_BYTES_TOTAL,
+    BODY_SIZE_BYTES,
+    CACHE_OPS,
+    REQUEST_DURATION,
+    REQUESTS_TOTAL,
+    SCAN_SESSIONS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +111,10 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
         current_method = "GET"
         is_request_phase = True
         is_bypassed = False
+        request_start = time.monotonic()
+        body_total_bytes = 0
 
+        ACTIVE_SESSIONS.inc()
         try:
             async for request in request_iterator:
                 logger.debug(f"Received gRPC Request: {request.WhichOneof('request')}")
@@ -129,9 +142,14 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                     if is_request_phase and current_method in self._CACHEABLE_METHODS:
                         if await self.cache.check_cache(current_path):
                             logger.info(f"CACHE HIT: {current_method} {current_path}")
+                            CACHE_OPS.labels(operation="hit").inc()
+                            SCAN_SESSIONS.labels(result="cache_hit").inc()
+                            REQUESTS_TOTAL.labels(method=current_method, result="cache_hit").inc()
                             is_bypassed = True
                             yield self._continue_response(is_request_phase, phase="headers")
                             continue
+                        else:
+                            CACHE_OPS.labels(operation="miss").inc()
                     elif not is_request_phase and is_bypassed:
                         # Response phase for a cached request — continue bypass
                         yield self._continue_response(is_request_phase, phase="headers")
@@ -156,9 +174,11 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
 
                     if not is_accepted:
                         logger.warning(f"SCAN BYPASSED: {task_id}")
+                        SCAN_SESSIONS.labels(result="bypassed_congestion").inc()
                         is_bypassed = True
                     else:
                         logger.info(f"SCAN ACCEPTED: {task_id}")
+                        SCAN_SESSIONS.labels(result="accepted").inc()
 
                     logger.debug("Yielding header response...")
                     yield self._continue_response(is_request_phase, phase="headers")
@@ -184,8 +204,10 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                         continue
 
                     # Provider push
+                    chunk_len = len(body_field.body)
+                    body_total_bytes += chunk_len
                     logger.debug(
-                        f"Pushing chunk for {task_id} ({len(body_field.body)} bytes)"
+                        f"Pushing chunk for {task_id} ({chunk_len} bytes)"
                     )
                     await provider.push_chunk(body_field.body)
 
@@ -197,8 +219,17 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                         logger.info(f"Waiting for Result: {task_id}")
                         result = await self.orchestrator.get_result(task_id)
 
+                        # Record size metrics
+                        BODY_SIZE_BYTES.labels(method=current_method).observe(body_total_bytes)
+                        BODY_BYTES_TOTAL.labels(method=current_method).inc(body_total_bytes)
+
                         if result.is_infected():
                             logger.error(f"BLOCKED: {result.virus_name}")
+                            SCAN_SESSIONS.labels(result="infected").inc()
+                            REQUESTS_TOTAL.labels(method=current_method, result="blocked").inc()
+                            REQUEST_DURATION.labels(method=current_method).observe(
+                                time.monotonic() - request_start
+                            )
                             yield external_processor_pb2.ProcessingResponse(
                                 immediate_response=external_processor_pb2.ImmediateResponse(
                                     status=http_status_pb2.HttpStatus(
@@ -210,9 +241,15 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                             return
 
                         logger.info(f"CLEAN: {task_id}")
+                        SCAN_SESSIONS.labels(result="clean").inc()
+                        REQUESTS_TOTAL.labels(method=current_method, result="clean").inc()
                         # Only cache for safe methods
                         if current_method in self._CACHEABLE_METHODS:
                             await self.cache.store_cache(current_path)
+                            CACHE_OPS.labels(operation="store").inc()
+                        REQUEST_DURATION.labels(method=current_method).observe(
+                            time.monotonic() - request_start
+                        )
                         yield self._continue_response(is_request_phase, phase="body")
                     else:
                         yield self._continue_response(is_request_phase, phase="body")
@@ -222,5 +259,9 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                     yield external_processor_pb2.ProcessingResponse()
 
         except Exception as e:
+            REQUESTS_TOTAL.labels(method=current_method, result="error").inc()
+            SCAN_SESSIONS.labels(result="error").inc()
             logger.exception(f"CRITICAL ERROR in Process Stream: {e}")
             raise
+        finally:
+            ACTIVE_SESSIONS.dec()

@@ -5,7 +5,7 @@ import time
 from typing import Any, Callable
 
 from dependency_injector.wiring import Provide, inject
-from prometheus_client import Histogram
+from prometheus_client import Counter, Histogram
 
 from aether_platform.virusscan.common.queue.provider import (
     QueueProvider, StateStoreProvider)
@@ -21,6 +21,61 @@ TAT_HISTOGRAM = Histogram(
     ["priority", "stage"],
     buckets=[1, 5, 10, 30, 60, 120, 300, 600],
 )
+
+# サイズ統計
+SCAN_SIZE_BYTES = Histogram(
+    "scanner_scan_size_bytes",
+    "Scanned content size in bytes",
+    ["priority", "result"],
+    buckets=[
+        1024,                   # 1 KB
+        10 * 1024,              # 10 KB
+        100 * 1024,             # 100 KB
+        1024 * 1024,            # 1 MB
+        10 * 1024 * 1024,       # 10 MB
+        100 * 1024 * 1024,      # 100 MB
+        1024 * 1024 * 1024,     # 1 GB
+        10 * 1024**3,           # 10 GB
+        100 * 1024**3,          # 100 GB
+    ],
+)
+
+SCAN_BYTES_TOTAL = Counter(
+    "scanner_scan_bytes_total",
+    "Total bytes scanned by ClamAV",
+    ["priority"],
+)
+
+# サイズ別処理時間 — size_class ラベルで分類
+SCAN_DURATION_BY_SIZE = Histogram(
+    "scanner_scan_duration_by_size_seconds",
+    "Scan processing time bucketed by content size class",
+    ["priority", "size_class"],
+    buckets=[0.1, 0.5, 1, 2, 5, 10, 30, 60, 120],
+)
+
+SCAN_RESULTS_TOTAL = Counter(
+    "scanner_scan_results_total",
+    "Scan results by outcome",
+    ["priority", "result"],
+)
+
+
+def _size_class(nbytes: int) -> str:
+    """Classify byte count into a human-readable size bucket label."""
+    if nbytes < 1024:
+        return "tiny_lt1k"
+    if nbytes < 100 * 1024:
+        return "small_1k_100k"
+    if nbytes < 1024 * 1024:
+        return "medium_100k_1m"
+    if nbytes < 100 * 1024 * 1024:
+        return "large_1m_100m"
+    if nbytes < 1024 * 1024 * 1024:
+        return "xlarge_100m_1g"
+    if nbytes < 10 * 1024**3:
+        return "huge_1g_10g"
+    return "massive_gt10g"
 
 
 class ScannerTaskService:
@@ -115,10 +170,14 @@ class ScannerTaskService:
         start_scan_time = time.time()
 
         try:
-            is_virus, virus_name = await self.engine.scan(provider)
+            is_virus, virus_name, bytes_scanned = await self.engine.scan(provider)
         except Exception as e:
             error_payload = {"status": "ERROR", "message": str(e)}
             await self._report_result(stream_id, error_payload)
+            SCAN_RESULTS_TOTAL.labels(
+                priority="high" if "priority" in queue_name else "normal",
+                result="error",
+            ).inc()
             return
 
         end_time = time.time()
@@ -132,13 +191,23 @@ class ScannerTaskService:
         total_tat = end_time - enqueued_at
 
         priority = "high" if "priority" in queue_name else "normal"
+        result_label = "infected" if is_virus else "clean"
+        sc = _size_class(bytes_scanned)
 
         # Record metrics to Prometheus
         TAT_HISTOGRAM.labels(priority=priority, stage="wait").observe(wait_tat)
         TAT_HISTOGRAM.labels(priority=priority, stage="process").observe(process_tat)
         TAT_HISTOGRAM.labels(priority=priority, stage="total").observe(total_tat)
+
+        # Size & size-based duration metrics
+        SCAN_SIZE_BYTES.labels(priority=priority, result=result_label).observe(bytes_scanned)
+        SCAN_BYTES_TOTAL.labels(priority=priority).inc(bytes_scanned)
+        SCAN_DURATION_BY_SIZE.labels(priority=priority, size_class=sc).observe(process_tat)
+        SCAN_RESULTS_TOTAL.labels(priority=priority, result=result_label).inc()
+
         self.logger.info(
-            f"Scan Done {stream_id} [{priority}]: {duration * 1000:.1f}ms, Virus={virus_name if is_virus else 'None'}, "
+            f"Scan Done {stream_id} [{priority}]: {duration * 1000:.1f}ms, "
+            f"Size={bytes_scanned} ({sc}), Virus={virus_name if is_virus else 'None'}, "
             f"TAT(wait/proc/total)={wait_tat:.1f}/{process_tat:.1f}/{total_tat:.1f}s, MemDelta={mem_delta:.0f}MB"
         )
 
@@ -152,6 +221,8 @@ class ScannerTaskService:
                 "wait_tat_s": wait_tat,
                 "process_tat_s": process_tat,
                 "total_tat_s": total_tat,
+                "bytes_scanned": bytes_scanned,
+                "size_class": sc,
             },
         }
         await self._report_result(stream_id, result_payload)

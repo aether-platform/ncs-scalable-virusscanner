@@ -26,7 +26,7 @@ class ScannerEngineClient:
         self.port = url.port or 3310
         self.logger = logging.getLogger(__name__)
 
-    async def scan(self, provider: DataProvider) -> Tuple[bool, str]:
+    async def scan(self, provider: DataProvider) -> Tuple[bool, str, int]:
         """
         Performs a virus scan by streaming data from the provider to ClamAV asynchronously.
 
@@ -34,7 +34,7 @@ class ScannerEngineClient:
             provider: A DataProvider strategy that supplies the content to scan.
 
         Returns:
-            A tuple of (is_infected, message).
+            A tuple of (is_infected, message, bytes_scanned).
         """
         reader, writer = await asyncio.open_connection(self.host, self.port)
         try:
@@ -43,8 +43,10 @@ class ScannerEngineClient:
 
             scan_success = False
             response = ""
+            total_bytes = 0
             try:
                 async for chunk in provider.get_chunks():
+                    total_bytes += len(chunk)
                     writer.write(struct.pack("!I", len(chunk)))
                     writer.write(chunk)
                     await writer.drain()
@@ -64,8 +66,8 @@ class ScannerEngineClient:
 
             if scan_success:
                 if "FOUND" in response:
-                    return True, response
-                return False, ""
+                    return True, response, total_bytes
+                return False, "", total_bytes
             raise Exception("ClamAV communication failed")
         except Exception as e:
             self.logger.error(f"Engine scan error: {e}")

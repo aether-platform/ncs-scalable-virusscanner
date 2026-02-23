@@ -55,7 +55,7 @@ services:
       - clamav
 
   envoy:
-    image: envoyproxy/envoy-contrib:v1.33-latest
+    image: envoyproxy/envoy:v1.37-latest
     entrypoint: ["envoy"]
     command: ["-c", "/etc/envoy/envoy.yaml", "-l", "debug"]
     user: root
