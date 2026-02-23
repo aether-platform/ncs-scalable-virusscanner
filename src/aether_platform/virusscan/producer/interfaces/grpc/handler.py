@@ -224,19 +224,37 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                         BODY_BYTES_TOTAL.labels(method=current_method).inc(body_total_bytes)
 
                         if result.is_infected():
-                            logger.error(f"BLOCKED: {result.virus_name}")
                             SCAN_SESSIONS.labels(result="infected").inc()
                             REQUESTS_TOTAL.labels(method=current_method, result="blocked").inc()
                             REQUEST_DURATION.labels(method=current_method).observe(
                                 time.monotonic() - request_start
                             )
-                            yield external_processor_pb2.ProcessingResponse(
-                                immediate_response=external_processor_pb2.ImmediateResponse(
-                                    status=http_status_pb2.HttpStatus(
-                                        code=http_status_pb2.Forbidden
-                                    ),
-                                    body=f"Virus Detected: {result.virus_name}".encode("utf-8"),
+
+                            if is_request_phase:
+                                # Upload: 403 Forbidden before upstream receives the request
+                                logger.error(
+                                    f"BLOCKED (request): {result.virus_name} "
+                                    f"[{current_method} {current_path}]"
                                 )
+                                yield external_processor_pb2.ProcessingResponse(
+                                    immediate_response=external_processor_pb2.ImmediateResponse(
+                                        status=http_status_pb2.HttpStatus(
+                                            code=http_status_pb2.Forbidden
+                                        ),
+                                        body=f"Virus Detected: {result.virus_name}".encode("utf-8"),
+                                    )
+                                )
+                                return
+
+                            # Download: 200 OK already sent to client — reset connection.
+                            # User notification is handled via Console webhook (consumer side).
+                            logger.error(
+                                f"INFECTED (response): {result.virus_name} "
+                                f"[{current_method} {current_path}] — resetting connection"
+                            )
+                            await context.abort(
+                                grpc.StatusCode.ABORTED,
+                                f"Virus detected in response: {result.virus_name}",
                             )
                             return
 
