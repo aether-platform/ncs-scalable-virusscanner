@@ -55,7 +55,7 @@ services:
       - clamav
 
   envoy:
-    image: envoyproxy/envoy:v1.37-latest
+    image: envoyproxy/envoy:v1.35-latest
     entrypoint: ["envoy"]
     command: ["-c", "/etc/envoy/envoy.yaml", "-l", "debug"]
     user: root
@@ -69,7 +69,10 @@ services:
       - echo-server
 
   mock-console:
-    image: ealen/echo-server
+    image: python:3.12-alpine
+    command: ["python", "/app/mock_console.py"]
+    volumes:
+      - ./mock_console.py:/app/mock_console.py:ro
     ports:
       - "3001:80"
 

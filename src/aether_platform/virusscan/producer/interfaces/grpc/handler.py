@@ -256,6 +256,9 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                     logger.debug("Unknown/Unsupported phase")
                     yield external_processor_pb2.ProcessingResponse()
 
+        except grpc.aio.AbortError:
+            # Expected when we call context.abort() for infected files
+            pass
         except Exception as e:
             REQUESTS_TOTAL.labels(method=current_method, result="error").inc()
             SCAN_SESSIONS.labels(result="error").inc()

@@ -20,6 +20,10 @@ class QueueProvider(ABC):
         """Blocks until a message is available from one of the queues."""
         pass
 
+    async def expire(self, key: str, seconds: int) -> bool:
+        """Sets a TTL on a key. Default no-op for backends without expiry."""
+        return True
+
 
 class StateStoreProvider(ABC):
     """
@@ -89,6 +93,9 @@ class RedisQueueProvider(QueueProvider):
             # brpop returns (queue_name_bytes, payload_bytes)
             return res[0].decode("utf-8"), res[1]
         return None
+
+    async def expire(self, key: str, seconds: int) -> bool:
+        return await self.redis.expire(key, seconds)
 
 
 class RedisStateStoreProvider(StateStoreProvider):

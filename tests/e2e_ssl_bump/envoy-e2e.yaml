@@ -1,6 +1,8 @@
 # ================================================================
-# E2E Test: Envoy + SSL Bump (on_demand_secret) + ext_proc
-# Requires: envoyproxy/envoy:v1.37-latest (on_demand_secret merged Dec 2025)
+# E2E Test: Envoy + SDS (standard) + ext_proc
+# Uses standard tls_certificate_sds_secret_configs.
+# Per-SNI dynamic cert generation requires on_demand_secret
+# (not yet released in any Envoy image as of v1.35).
 # ================================================================
 node:
   id: e2e-test-node
@@ -51,17 +53,15 @@ static_resources:
                   - name: envoy.filters.http.router
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
-          # On-demand SDS: SNI-based dynamic certificate generation
+          # SDS: Producer generates a default cert signed by the egress CA
           transport_socket:
             name: envoy.transport_sockets.tls
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
               common_tls_context:
-                custom_tls_certificate_selector:
-                  name: on-demand
-                  typed_config:
-                    "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.cert_selectors.on_demand_secret.v3.Config
-                    config_source:
+                tls_certificate_sds_secret_configs:
+                  - name: "default-cert"
+                    sds_config:
                       api_config_source:
                         api_type: DELTA_GRPC
                         transport_api_version: V3
@@ -69,13 +69,6 @@ static_resources:
                           - envoy_grpc:
                               cluster_name: sds_service
                         set_node_on_first_message_only: true
-                    certificate_mapper:
-                      name: sni
-                      typed_config:
-                        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.cert_mappers.sni.v3.SNI
-                        default_value: "localhost"
-              disable_stateless_session_resumption: true
-              disable_stateful_session_resumption: true
 
   clusters:
     - name: echo_service
@@ -95,7 +88,11 @@ static_resources:
       connect_timeout: 0.25s
       type: LOGICAL_DNS
       lb_policy: ROUND_ROBIN
-      http2_protocol_options: {}
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config:
+            http2_protocol_options: {}
       load_assignment:
         cluster_name: ext_proc_service
         endpoints:
@@ -109,7 +106,11 @@ static_resources:
       connect_timeout: 0.25s
       type: LOGICAL_DNS
       lb_policy: ROUND_ROBIN
-      http2_protocol_options: {}
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config:
+            http2_protocol_options: {}
       load_assignment:
         cluster_name: sds_service
         endpoints:

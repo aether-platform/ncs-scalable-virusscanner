@@ -63,15 +63,15 @@ def load_all_pb2():
 
 load_all_pb2()
 # -----------------------------
-# -----------------------------
+# Proto stubs must be loaded before importing modules that depend on them.
 
-from envoy.service.ext_proc.v3 import external_processor_pb2_grpc
+from envoy.service.ext_proc.v3 import external_processor_pb2_grpc  # noqa: E402
 
-from aether_platform.virusscan.producer.containers import ProducerContainer
-from aether_platform.virusscan.producer.interfaces.grpc.handler import (
+from aether_platform.virusscan.producer.containers import ProducerContainer  # noqa: E402
+from aether_platform.virusscan.producer.interfaces.grpc.handler import (  # noqa: E402
     VirusScannerExtProcHandler,
 )
-from aether_platform.virusscan.producer.interfaces.grpc.sds import (
+from aether_platform.virusscan.producer.interfaces.grpc.sds import (  # noqa: E402
     SecretDiscoveryHandler,
 )
 

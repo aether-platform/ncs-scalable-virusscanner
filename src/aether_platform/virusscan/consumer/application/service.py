@@ -103,8 +103,7 @@ class ScannerTaskService:
         """Signals to the producer that the task has been accepted by a worker."""
         ack_key = f"ack:{stream_id}"
         await self.provider.push(ack_key, b"1")
-        # Set a reasonable expiry for the ACK key just in case
-        await self.store.set(ack_key, b"1", ex=300)
+        await self.provider.expire(ack_key, 300)
 
     async def _report_result(self, stream_id: str, result_payload: dict):
         """Internal helper to persist scan results to the queue provider."""
