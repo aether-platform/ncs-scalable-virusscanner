@@ -6,9 +6,8 @@ from unittest.mock import AsyncMock
 import pytest
 import redis.asyncio as redis
 
-from aether_platform.virusscan.consumer.interfaces.worker.handler import (
-    VirusScanHandler,
-)
+from aether_platform.virusscan.consumer.interfaces.worker.handler import \
+    VirusScanHandler
 from aether_platform.virusscan.consumer.settings import Settings
 
 

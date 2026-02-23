@@ -6,7 +6,6 @@ import sys
 
 import grpc.aio as grpc
 from dependency_injector.wiring import Provide, inject
-
 # 1. First, import core google protobuf descriptors to populate descriptor pool
 from google.protobuf import descriptor_pb2  # noqa: F401
 
@@ -14,13 +13,8 @@ from google.protobuf import descriptor_pb2  # noqa: F401
 # --- Support for Envoy Protos ---
 def load_all_pb2():
     # 1. First, import core google protobuf descriptors
-    from google.protobuf import (  # noqa: F401
-        any_pb2,
-        duration_pb2,
-        struct_pb2,
-        timestamp_pb2,
-        wrappers_pb2,
-    )
+    from google.protobuf import (any_pb2, duration_pb2,  # noqa: F401
+                                 struct_pb2, timestamp_pb2, wrappers_pb2)
 
     # Add the local producer path to sys.path so 'envoy', 'udpa', etc. can be imported
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -67,9 +61,8 @@ load_all_pb2()
 from envoy.service.ext_proc.v3 import external_processor_pb2_grpc
 
 from aether_platform.virusscan.producer.containers import ProducerContainer
-from aether_platform.virusscan.producer.interfaces.grpc.handler import (
-    VirusScannerExtProcHandler,
-)
+from aether_platform.virusscan.producer.interfaces.grpc.handler import \
+    VirusScannerExtProcHandler
 
 logger = logging.getLogger(__name__)
 

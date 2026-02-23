@@ -7,9 +7,7 @@ import clamd
 from dependency_injector.wiring import Provide, inject
 
 from aether_platform.virusscan.common.queue.provider import (
-    QueueProvider,
-    StateStoreProvider,
-)
+    QueueProvider, StateStoreProvider)
 
 
 class ClusterCoordinator:

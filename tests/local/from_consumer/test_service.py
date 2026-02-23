@@ -4,7 +4,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from aether_platform.virusscan.consumer.application.service import ScannerTaskService
+from aether_platform.virusscan.consumer.application.service import \
+    ScannerTaskService
 from aether_platform.virusscan.consumer.settings import Settings
 
 
