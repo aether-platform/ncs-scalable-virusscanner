@@ -14,10 +14,28 @@ from aether_platform.virusscan.producer.application.orchestrator import \
 logger = logging.getLogger(__name__)
 
 
+def _extract_header_value(header) -> str:
+    """Extract header value, preferring raw_value (bytes) over value (string)."""
+    if header.raw_value:
+        return header.raw_value.decode("utf-8", errors="replace")
+    return header.value
+
+
+def _parse_headers(header_list) -> dict[str, str]:
+    """Parse Envoy HeaderMap into a dict, handling both value and raw_value."""
+    return {
+        h.key.lower(): _extract_header_value(h)
+        for h in header_list
+    }
+
+
 class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorServicer):
     """
     Async gRPC interface for Envoy external processing.
     """
+
+    # Only cache scan results for safe (body-less) HTTP methods
+    _CACHEABLE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
     def __init__(
         self,
@@ -80,6 +98,7 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
         task_id = None
         provider = None
         current_path = "unknown"
+        current_method = "GET"
         is_request_phase = True
         is_bypassed = False
 
@@ -92,26 +111,29 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                     "response_headers"
                 ):
                     if request.HasField("request_headers"):
-                        headers = {
-                            h.key.lower(): h.value
-                            for h in request.request_headers.headers.headers
-                        }
+                        headers = _parse_headers(
+                            request.request_headers.headers.headers
+                        )
                         current_path = headers.get(":path", "unknown")
+                        current_method = headers.get(":method", "GET").upper()
                         is_request_phase = True
-                        logger.info(f"[HEADER] Request: {current_path}")
+                        logger.info(f"[HEADER] Request: {current_method} {current_path}")
                     else:
-                        headers = {
-                            h.key.lower(): h.value
-                            for h in request.response_headers.headers.headers
-                        }
+                        headers = _parse_headers(
+                            request.response_headers.headers.headers
+                        )
                         is_request_phase = False
                         logger.info("[HEADER] Response")
 
-                    # Check Intelligent Cache / Bypass (Async)
-                    logger.debug("Checking cache...")
-                    if await self.cache.check_cache(current_path):
-                        logger.info(f"CACHE HIT: {current_path}")
-                        is_bypassed = True
+                    # Cache check only for request headers of cacheable methods
+                    if is_request_phase and current_method in self._CACHEABLE_METHODS:
+                        if await self.cache.check_cache(current_path):
+                            logger.info(f"CACHE HIT: {current_method} {current_path}")
+                            is_bypassed = True
+                            yield self._continue_response(is_request_phase, phase="headers")
+                            continue
+                    elif not is_request_phase and is_bypassed:
+                        # Response phase for a cached request — continue bypass
                         yield self._continue_response(is_request_phase, phase="headers")
                         continue
 
@@ -182,14 +204,15 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                                     status=http_status_pb2.HttpStatus(
                                         code=http_status_pb2.Forbidden
                                     ),
-                                    details=f"Infected: {result.virus_name}",
-                                    body=f"Virus Detected: {result.virus_name}",
+                                    body=f"Virus Detected: {result.virus_name}".encode("utf-8"),
                                 )
                             )
                             return
 
                         logger.info(f"CLEAN: {task_id}")
-                        await self.cache.store_cache(current_path)
+                        # Only cache for safe methods
+                        if current_method in self._CACHEABLE_METHODS:
+                            await self.cache.store_cache(current_path)
                         yield self._continue_response(is_request_phase, phase="body")
                     else:
                         yield self._continue_response(is_request_phase, phase="body")

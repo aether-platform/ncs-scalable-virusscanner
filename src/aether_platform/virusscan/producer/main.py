@@ -70,6 +70,9 @@ from aether_platform.virusscan.producer.containers import ProducerContainer
 from aether_platform.virusscan.producer.interfaces.grpc.handler import (
     VirusScannerExtProcHandler,
 )
+from aether_platform.virusscan.producer.interfaces.grpc.sds import (
+    SecretDiscoveryHandler,
+)
 
 logger = logging.getLogger(__name__)
 

@@ -31,6 +31,7 @@ static_resources:
                         envoy_grpc:
                           cluster_name: ext_proc_service
                       failure_mode_allow: false
+                      message_timeout: 30s
                       processing_mode:
                         request_header_mode: SEND
                         request_body_mode: STREAMED
@@ -44,25 +45,11 @@ static_resources:
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
               common_tls_context:
-                tls_certificate_sds_secret_configs:
-                  - sds_config:
-                      api_config_source:
-                        api_type: GRPC
-                        transport_api_version: V3
-                        grpc_services:
-                          - envoy_grpc:
-                              cluster_name: sds_cluster
-                      resource_api_version: V3
-                tls_cert_selector_configs:
-                  - default_matched_cert:
-                      on_demand_sds_config:
-                        api_config_source:
-                          api_type: GRPC
-                          transport_api_version: V3
-                          grpc_services:
-                            - envoy_grpc:
-                                cluster_name: sds_cluster
-                        resource_api_version: V3
+                tls_certificates:
+                  - certificate_chain:
+                      filename: /etc/envoy/certs/server.crt
+                    private_key:
+                      filename: /etc/envoy/certs/server.key
 
   clusters:
     - name: echo_service
@@ -85,20 +72,6 @@ static_resources:
       http2_protocol_options: {}
       load_assignment:
         cluster_name: ext_proc_service
-        endpoints:
-          - lb_endpoints:
-              - endpoint:
-                  address:
-                    socket_address:
-                      address: producer
-                      port_value: 50051
-    - name: sds_cluster
-      connect_timeout: 0.25s
-      type: STATIC
-      lb_policy: ROUND_ROBIN
-      http2_protocol_options: {}
-      load_assignment:
-        cluster_name: sds_cluster
         endpoints:
           - lb_endpoints:
               - endpoint:

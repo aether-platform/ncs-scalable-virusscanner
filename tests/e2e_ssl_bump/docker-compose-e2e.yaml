@@ -2,6 +2,8 @@ services:
   redis:
     image: redis:7-alpine
     restart: always
+    ports:
+      - "6379:6379"
 
   clamav:
     image: clamav/clamav:latest
@@ -25,8 +27,12 @@ services:
       - TENANT_ID=e2e-test-tenant
       - SCAN_TMP_DIR=/tmp/virusscan
       - PYTHONPATH=/app/src:/app/src/aether_platform/virusscan/producer
+      - CA_CERT_PATH=/etc/egress-ca/tls.crt
+      - CA_KEY_PATH=/etc/egress-ca/tls.key
     volumes:
       - shared-tmp:/tmp/virusscan
+      - ./certs/ca.crt:/etc/egress-ca/tls.crt:ro
+      - ./certs/ca.key:/etc/egress-ca/tls.key:ro
     depends_on:
       - redis
 
@@ -49,7 +55,7 @@ services:
       - clamav
 
   envoy:
-    image: envoyproxy/envoy:v1.31-latest
+    image: envoyproxy/envoy-contrib:v1.33-latest
     entrypoint: ["envoy"]
     command: ["-c", "/etc/envoy/envoy.yaml", "-l", "debug"]
     user: root

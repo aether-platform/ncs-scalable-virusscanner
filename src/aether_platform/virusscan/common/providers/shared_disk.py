@@ -1,5 +1,5 @@
 import os
-from typing import Iterator, Optional
+from typing import AsyncIterator, Optional
 
 from .base import DataProvider
 
@@ -9,7 +9,7 @@ class SharedDiskStreamProvider(DataProvider):
         self.file_path = file_path
         self.delete_after = delete_after
 
-    def get_chunks(self) -> Iterator[bytes]:
+    async def get_chunks(self) -> AsyncIterator[bytes]:
         if not os.path.exists(self.file_path):
             return
 
@@ -20,15 +20,15 @@ class SharedDiskStreamProvider(DataProvider):
                     break
                 yield chunk
 
-    def push_chunk(self, chunk: bytes):
+    async def push_chunk(self, chunk: bytes):
         mode = "ab" if os.path.exists(self.file_path) else "wb"
         with open(self.file_path, mode) as f:
             f.write(chunk)
 
-    def finalize_push(self):
+    async def finalize_push(self):
         pass
 
-    def finalize(self, success: bool, is_virus: bool):
+    async def finalize(self, success: bool, is_virus: bool):
         if self.delete_after and os.path.exists(self.file_path):
             os.remove(self.file_path)
 

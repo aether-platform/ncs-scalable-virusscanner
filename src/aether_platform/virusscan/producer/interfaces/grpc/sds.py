@@ -8,8 +8,10 @@ from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from envoy.service.secret.v3 import sds_pb2, sds_pb2_grpc
-from envoy.extensions.transport_sockets.tls.v3 import tls_pb2
+from envoy.service.secret.v3 import sds_pb2_grpc
+from envoy.service.discovery.v3 import discovery_pb2
+from envoy.extensions.transport_sockets.tls.v3 import secret_pb2, common_pb2
+from envoy.config.core.v3 import base_pb2
 from google.protobuf import any_pb2
 
 logger = logging.getLogger(__name__)
@@ -45,12 +47,12 @@ class SecretDiscoveryHandler(sds_pb2_grpc.SecretDiscoveryServiceServicer):
         subject = x509.Name([
             x509.NameAttribute(NameOID.COMMON_NAME, common_name),
         ])
-        
+
         # SAN (Subject Alternative Name) is required for modern browsers/tools
         alt_names = [x509.DNSName(common_name)]
         if common_name.startswith("*."):
             pass # Wildcard handling if needed
-        
+
         builder = x509.CertificateBuilder()
         builder = builder.subject_name(subject)
         builder = builder.issuer_name(self.ca_cert.subject)
@@ -74,10 +76,10 @@ class SecretDiscoveryHandler(sds_pb2_grpc.SecretDiscoveryServiceServicer):
             format=serialization.PrivateFormat.TraditionalOpenSSL,
             encryption_algorithm=serialization.NoEncryption(),
         )
-        
+
         # Also need the chain (Intermediate CA)
         chain_pem = self.ca_cert.public_bytes(serialization.Encoding.PEM)
-        
+
         return cert_pem, key_pem, chain_pem
 
     async def FetchSecrets(self, request, context):
@@ -85,43 +87,42 @@ class SecretDiscoveryHandler(sds_pb2_grpc.SecretDiscoveryServiceServicer):
 
     async def StreamSecrets(
         self,
-        request_iterator: AsyncIterator[sds_pb2.DiscoveryRequest],
+        request_iterator: AsyncIterator[discovery_pb2.DiscoveryRequest],
         context: grpc.ServicerContext,
-    ) -> AsyncIterator[sds_pb2.DiscoveryResponse]:
-        
+    ) -> AsyncIterator[discovery_pb2.DiscoveryResponse]:
+
         async for request in request_iterator:
             resource_names = request.resource_names
             logger.info(f"Received SDS request for: {resource_names}")
-            
+
             resources = []
             for name in resource_names:
-                # If name starts with "sds_cert:", treat as SNI request
-                # Note: Envoy's on_demand SDS often uses the SNI as the secret name.
+                # Envoy's on_demand SDS uses the SNI as the secret name.
                 sni = name
                 try:
                     cert_pem, key_pem, chain_pem = self._generate_cert(sni)
-                    
-                    secret = sds_pb2.Secret(
+
+                    secret = secret_pb2.Secret(
                         name=name,
-                        tls_certificate=tls_pb2.TlsCertificate(
-                            certificate_chain=tls_pb2.DataSource(
+                        tls_certificate=common_pb2.TlsCertificate(
+                            certificate_chain=base_pb2.DataSource(
                                 inline_bytes=cert_pem + chain_pem
                             ),
-                            private_key=tls_pb2.DataSource(
+                            private_key=base_pb2.DataSource(
                                 inline_bytes=key_pem
                             )
                         )
                     )
-                    
+
                     any_secret = any_pb2.Any()
                     any_secret.Pack(secret)
                     resources.append(any_secret)
                     logger.info(f"Generated dynamic cert for {sni}")
-                    
+
                 except Exception as e:
                     logger.error(f"Error generating cert for {sni}: {e}")
 
-            yield sds_pb2.DiscoveryResponse(
+            yield discovery_pb2.DiscoveryResponse(
                 version_info="1",
                 resources=resources,
                 type_url="type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret",

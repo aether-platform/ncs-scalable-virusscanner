@@ -24,6 +24,10 @@ from .settings import ProducerSettings
 
 class ProducerContainer(containers.DeclarativeContainer):
     config = providers.Configuration()
+    config.set_default({
+        "CA_CERT_PATH": "/etc/egress-ca/tls.crt",
+        "CA_KEY_PATH": "/etc/egress-ca/tls.key",
+    })
     config.from_dict(os.environ)
 
     settings = providers.Singleton(
@@ -90,8 +94,8 @@ class ProducerContainer(containers.DeclarativeContainer):
     # Secret Discovery Handler
     sds_handler = providers.Singleton(
         SecretDiscoveryHandler,
-        ca_cert_path=config.ca_cert_path | providers.Object("/etc/egress-ca/tls.crt"),
-        ca_key_path=config.ca_key_path | providers.Object("/etc/egress-ca/tls.key"),
+        ca_cert_path=config.CA_CERT_PATH,
+        ca_key_path=config.CA_KEY_PATH,
     )
 
     # Interface
