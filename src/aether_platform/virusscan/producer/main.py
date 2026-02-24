@@ -84,8 +84,8 @@ async def serve(
     grpc_port: int = Provide[ProducerContainer.settings.provided.grpc_port],
 ):
     """Starts the VirusScanner Producer (Async gRPC + Prometheus metrics)."""
-    # Start Prometheus metrics HTTP server on port 8080
-    metrics_port = 8080
+    # Start Prometheus metrics HTTP server (avoid 8080/8443 used by Envoy sidecar)
+    metrics_port = int(os.environ.get("METRICS_PORT", "9090"))
     start_http_server(metrics_port)
     logger.info(f"Prometheus metrics server started on port {metrics_port}")
 
