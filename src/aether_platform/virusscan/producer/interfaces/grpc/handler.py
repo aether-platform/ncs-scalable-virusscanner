@@ -54,12 +54,12 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
         orchestrator: ScanOrchestrator,
         cache: IntelligentCacheService,
         settings: Any,
-        flagsmith_client: Any = None,
+        feature_flags: Any,
     ):
         self.orchestrator = orchestrator
         self.cache = cache
         self.settings = settings
-        self.flagsmith = flagsmith_client
+        self.feature_flags = feature_flags
 
     def _continue_response(
         self, is_request_phase: bool, phase: str
@@ -82,24 +82,8 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
             )
 
     async def _get_tenant_plan_priority(self, tenant_id: str) -> bool:
-        if not self.flagsmith:
-            return False
-
-        try:
-            logger.info(f"Querying Flagsmith for {tenant_id}")
-            # Flagsmith SDK is synchronous — run in thread to avoid blocking event loop
-            identity_flags = await asyncio.to_thread(
-                self.flagsmith.get_identity_flags, identifier=tenant_id
-            )
-            plan = identity_flags.get_feature_value("scan_plan")
-            res = (await self.cache.check_priority(plan)) == "high"
-            logger.info(f"Flagsmith result for {tenant_id}: {res}")
-            return res
-        except Exception as e:
-            logger.warning(
-                f"Flagsmith query failed for {tenant_id}, defaulting to normal: {e}"
-            )
-            return False
+        """Returns True if the tenant has high priority."""
+        return await self.feature_flags.get_priority(tenant_id)
 
     async def Process(
         self,
@@ -161,8 +145,9 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
 
                     tenant_id = self.settings.tenant_id
                     # Priority lookup (Async)
-                    logger.debug("Checking priority...")
+                    logger.info(f"Checking priority for tenant: {tenant_id}...")
                     is_priority = await self._get_tenant_plan_priority(tenant_id)
+                    logger.info(f"Priority result: {is_priority}")
 
                     # Stage 1: Handshake
                     logger.debug("Preparing session...")
@@ -177,7 +162,7 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                     )
 
                     if not is_accepted:
-                        logger.warning(f"SCAN BYPASSED: {task_id}")
+                        logger.warning(f"SCAN BYPASSED (is_accepted=False): {task_id}")
                         SCAN_SESSIONS.labels(result="bypassed_congestion").inc()
                         is_bypassed = True
                     else:

@@ -16,6 +16,10 @@ from ..common.providers import (
 )
 from ..common.queue.provider import RedisQueueProvider, RedisStateStoreProvider
 from .application.orchestrator import ScanOrchestrator
+from .application.feature_flags import (
+    FlagsmithFeatureFlagsProvider,
+    EnvVarFeatureFlagsProvider,
+)
 from .infrastructure.redis_adapter import RedisScanAdapter
 from .interfaces.grpc.handler import VirusScannerExtProcHandler
 from .interfaces.grpc.sds import SecretDiscoveryHandler
@@ -76,10 +80,21 @@ class ProducerContainer(containers.DeclarativeContainer):
         provider_factory=data_provider,
     )
 
-    # Flagsmith Client
-    flagsmith = providers.Singleton(
+    # Flagsmith Client (Low-level SDK)
+    flagsmith_sdk = providers.Singleton(
         Flagsmith,
-        environment_key=os.environ.get("FLAGSMITH_ENV_KEY", "dummy-key"),
+        environment_key=config.FLAGSMITH_ENV_KEY.provider.default("dummy-key"),
+    )
+
+    # Feature Flag Providers
+    feature_flags = providers.Selector(
+        config.FEATURE_FLAG_ENGINE.provider.default("envvar"),
+        flagsmith=providers.Singleton(
+            FlagsmithFeatureFlagsProvider,
+            flagsmith_client=flagsmith_sdk,
+            cache_service=cache_service,
+        ),
+        envvar=providers.Singleton(EnvVarFeatureFlagsProvider),
     )
 
     # Intelligent Cache Service (Fully managed by DI)
@@ -103,6 +118,6 @@ class ProducerContainer(containers.DeclarativeContainer):
         VirusScannerExtProcHandler,
         orchestrator=orchestrator,
         cache=cache_service,
-        flagsmith_client=flagsmith,
+        feature_flags=feature_flags,
         settings=settings,
     )
