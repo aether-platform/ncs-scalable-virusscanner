@@ -8,6 +8,8 @@ env/
 .env
 .pytest_cache/
 .coverage
+.ruff_cache/
+.ipynb_checkpoints/
 
 # Dependencies
 node_modules/
@@ -16,13 +18,18 @@ node_modules/
 # Project specific
 protos/
 test-data/
-src/virus_scanner/producer/envoy/
-src/virus_scanner/producer/udpa/
-src/virus_scanner/producer/xds/
-src/virus_scanner/producer/validate/
-src/virus_scanner/producer/*_pb2.py
-src/virus_scanner/producer/*_pb2_grpc.py
+# Generated Protobuf files in src/
+**/envoy/
+**/udpa/
+**/xds/
+**/validate/
+**/*_pb2.py
+**/*_pb2.all
+**/*_pb2_grpc.py
 
 # Docker
 .docker/
 debug_build.log
+.claude/
+walkthrough.md
+cert_mod.txt

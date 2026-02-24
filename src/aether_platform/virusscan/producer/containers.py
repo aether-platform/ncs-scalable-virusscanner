@@ -31,6 +31,7 @@ class ProducerContainer(containers.DeclarativeContainer):
     config.set_default({
         "CA_CERT_PATH": "/etc/egress-ca/tls.crt",
         "CA_KEY_PATH": "/etc/egress-ca/tls.key",
+        "FLAGSMITH_ENV_KEY": "dummy-key",
     })
     config.from_dict(os.environ)
 
@@ -83,12 +84,12 @@ class ProducerContainer(containers.DeclarativeContainer):
     # Flagsmith Client (Low-level SDK)
     flagsmith_sdk = providers.Singleton(
         Flagsmith,
-        environment_key=config.FLAGSMITH_ENV_KEY.provider.default("dummy-key"),
+        environment_key=config.FLAGSMITH_ENV_KEY,
     )
 
     # Feature Flag Providers
     feature_flags = providers.Selector(
-        config.FEATURE_FLAG_ENGINE.provider.default("envvar"),
+        providers.Callable(os.getenv, "FEATURE_FLAG_ENGINE", "envvar"),
         flagsmith=providers.Singleton(
             FlagsmithFeatureFlagsProvider,
             flagsmith_client=flagsmith_sdk,

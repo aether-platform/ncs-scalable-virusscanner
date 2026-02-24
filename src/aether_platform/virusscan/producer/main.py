@@ -90,6 +90,7 @@ async def serve(
     logger.info(f"Prometheus metrics server started on port {metrics_port}")
 
     server = grpc.server()
+    logger.info(f"Registering ExternalProcessor handler: {handler}")
     external_processor_pb2_grpc.add_ExternalProcessorServicer_to_server(handler, server)
     from envoy.service.secret.v3 import sds_pb2_grpc
 

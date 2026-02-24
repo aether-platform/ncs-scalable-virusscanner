@@ -93,6 +93,7 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
         """
         Main async gRPC streaming method.
         """
+        logger.info(">>> [gRPC] Process stream started")
         task_id = None
         provider = None
         current_path = "unknown"

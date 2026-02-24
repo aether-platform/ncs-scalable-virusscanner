@@ -37,5 +37,5 @@ RUN mkdir -p /tmp/virusscan && chmod 777 /tmp/virusscan
 # 8080: Producer metrics
 EXPOSE 50051 8080
 
-# Default: Run Consumer (Handler)
+# Default command (will be overridden by K8s or build-arg but here we keep a generic one)
 CMD ["virus-scanner-handler"]
