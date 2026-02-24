@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from typing import Any, AsyncIterator
@@ -86,10 +87,12 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
 
         try:
             logger.info(f"Querying Flagsmith for {tenant_id}")
-            # Flagsmith query
-            identity_flags = self.flagsmith.get_identity_flags(identifier=tenant_id)
+            # Flagsmith SDK is synchronous — run in thread to avoid blocking event loop
+            identity_flags = await asyncio.to_thread(
+                self.flagsmith.get_identity_flags, identifier=tenant_id
+            )
             plan = identity_flags.get_feature_value("scan_plan")
-            res = await self.cache.check_priority(plan) == "high"
+            res = (await self.cache.check_priority(plan)) == "high"
             logger.info(f"Flagsmith result for {tenant_id}: {res}")
             return res
         except Exception as e:

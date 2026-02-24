@@ -23,6 +23,29 @@ redis:
   metrics:
     enabled: true # Enable redis-exporter
 
+resources:
+  scanner:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  clamav:
+    requests:
+      cpu: "200m"
+      memory: "1Gi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
+  producer:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
 storage:
   pvc:
     name: shared-virusscan-pvc
@@ -38,14 +61,25 @@ service:
   producer:
     grpcPort: 50051
     metricsPort: 8080
+  consumer:
+    metricsPort: 9090
 
 config:
   scanFileThresholdMb: 10
   minFreeMemoryMb: 500
+  tenantId: "default-tenant"
+  consoleApiUrl: "http://aether-console:3000"
 
 clamav:
   freshclam:
     checksPerDay: 12 # Update virus definitions 12 times per day
+
+envoy:
+  image:
+    repository: envoyproxy/envoy
+    tag: v1.35-latest
+  logLevel: info
+  caCertSecret: "egress-ca-tls"
 
 autoscaling:
   enabled: true

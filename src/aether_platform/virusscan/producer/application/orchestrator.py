@@ -2,7 +2,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Any, Dict, Tuple
+from typing import Any, Dict
 
 from dependency_injector import providers
 from dependency_injector.wiring import Provide, inject
@@ -20,8 +20,6 @@ class ScanOrchestrator:
     Now fully asynchronous.
     """
 
-    _start_times: Dict[str, Tuple[int, str]] = {}
-
     @inject
     def __init__(
         self,
@@ -33,9 +31,9 @@ class ScanOrchestrator:
         """
         self.adapter = redis_adapter
         self.provider_factory = provider_factory
-        self._start_times = {}  # task_id -> {start_ns, tenant_id, wait_start}
+        self._start_times: Dict[str, dict] = {}  # task_id -> {start_ns, tenant_id, client_ip}
 
-    def _get_start_data(self, task_id: str) -> Tuple[int, str] | None:
+    def _get_start_data(self, task_id: str) -> dict | None:
         """Internal helper to retrieve session start data."""
         return self._start_times.get(task_id)
 
@@ -44,7 +42,7 @@ class ScanOrchestrator:
         is_priority: bool = False,
         tenant_id: str = "unknown",
         client_ip: str = "unknown",
-    ) -> Tuple[str, Any]:
+    ) -> tuple[str, Any]:
         """
         Initializes a new scan session with a unique stream ID.
         """
@@ -77,6 +75,7 @@ class ScanOrchestrator:
             logger.warning(
                 f"CONGESTION BYPASS (Predictive): {task_id} skipped. Last TAT: {last_tat:.1f}s"
             )
+            self._start_times.pop(task_id, None)
             return False
 
         # 2. Dispatch Metadata (メタデータ投入)
@@ -95,6 +94,7 @@ class ScanOrchestrator:
             logger.warning(
                 f"HANDSHAKE FAILED (Timeout): {task_id} was not picked up within 300s."
             )
+            self._start_times.pop(task_id, None)
             return False
 
         return True
@@ -105,7 +105,7 @@ class ScanOrchestrator:
         """
         data = self._get_start_data(task_id)
         if data:
-            start_time = data[0] if isinstance(data, tuple) else data.get("start_ns")
+            start_time = data.get("start_ns")
             duration_ms = (time.time_ns() - start_time) / 1e6
             await self.adapter.record_metrics(task_id, duration_ms)
 

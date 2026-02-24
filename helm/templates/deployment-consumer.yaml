@@ -29,6 +29,10 @@ spec:
         - name: scanner
           image: "{{ .Values.image.consumer.repository }}:{{ .Values.image.consumer.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.service.consumer.metricsPort }}
+              protocol: TCP
           env:
             - name: REDIS_HOST
               value: "{{ .Values.autoscaling.redis.host }}"
@@ -46,11 +50,32 @@ spec:
                   fieldPath: metadata.namespace
             - name: MIN_FREE_MEMORY_MB
               value: "{{ .Values.config.minFreeMemoryMb }}"
+            - name: CONSOLE_API_URL
+              value: "{{ .Values.config.consoleApiUrl }}"
+          resources:
+            requests:
+              cpu: {{ .Values.resources.scanner.requests.cpu | default "100m" }}
+              memory: {{ .Values.resources.scanner.requests.memory | default "128Mi" }}
+            limits:
+              cpu: {{ .Values.resources.scanner.limits.cpu | default "500m" }}
+              memory: {{ .Values.resources.scanner.limits.memory | default "512Mi" }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
           volumeMounts:
             - name: scan-data
               mountPath: /tmp/virusscan
               readOnly: true
-        
+
         - name: clamav
           image: "{{ .Values.image.clamav.repository }}:{{ .Values.image.clamav.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -58,6 +83,13 @@ spec:
             - name: clamd
               containerPort: 3310
               protocol: TCP
+          resources:
+            requests:
+              cpu: {{ .Values.resources.clamav.requests.cpu | default "200m" }}
+              memory: {{ .Values.resources.clamav.requests.memory | default "1Gi" }}
+            limits:
+              cpu: {{ .Values.resources.clamav.limits.cpu | default "1000m" }}
+              memory: {{ .Values.resources.clamav.limits.memory | default "2Gi" }}
           volumeMounts:
             - name: clamav-config
               mountPath: /etc/clamav/clamd.conf
@@ -76,7 +108,7 @@ spec:
               port: 3310
             initialDelaySeconds: 45
             periodSeconds: 5
-        
+
         - name: freshclam
           image: "{{ .Values.image.clamav.repository }}:{{ .Values.image.clamav.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -84,6 +116,13 @@ spec:
           args:
             - |
               freshclam -d --config-file=/etc/clamav/freshclam.conf
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
           volumeMounts:
             - name: clamav-config
               mountPath: /etc/clamav/freshclam.conf

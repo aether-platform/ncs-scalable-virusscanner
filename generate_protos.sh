@@ -4,7 +4,7 @@
 set -e
 
 PROTO_DIR="./protos"
-OUT_DIR="./src/virus_scanner/producer"
+OUT_DIR="./src/aether_platform/virusscan/producer"
 
 # Create directories
 mkdir -p $PROTO_DIR

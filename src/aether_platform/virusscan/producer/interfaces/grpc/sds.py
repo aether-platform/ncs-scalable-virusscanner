@@ -1,7 +1,11 @@
 import datetime
 import logging
+import os
+import threading
+import time
 import uuid
-from typing import AsyncIterator
+from collections import OrderedDict
+from typing import AsyncIterator, NamedTuple
 
 import grpc
 from cryptography import x509
@@ -18,14 +22,37 @@ from aether_platform.virusscan.producer.metrics import SDS_CERTS_GENERATED, SDS_
 
 logger = logging.getLogger(__name__)
 
+# Default: cache up to 1000 certs, each valid for 1 hour
+_DEFAULT_CACHE_MAX_SIZE = int(os.environ.get("SDS_CACHE_MAX_SIZE", "1000"))
+_DEFAULT_CACHE_TTL_SECONDS = int(os.environ.get("SDS_CACHE_TTL_SECONDS", "3600"))
+
+
+class _CachedCert(NamedTuple):
+    cert_pem: bytes
+    key_pem: bytes
+    chain_pem: bytes
+    created_at: float
+
+
 class SecretDiscoveryHandler(sds_pb2_grpc.SecretDiscoveryServiceServicer):
     """
     SDS server implementation for on-demand dynamic certificate generation.
+    Includes an LRU cache to avoid redundant RSA key generation.
     """
 
-    def __init__(self, ca_cert_path: str, ca_key_path: str):
+    def __init__(
+        self,
+        ca_cert_path: str,
+        ca_key_path: str,
+        cache_max_size: int = _DEFAULT_CACHE_MAX_SIZE,
+        cache_ttl_seconds: int = _DEFAULT_CACHE_TTL_SECONDS,
+    ):
         self.ca_cert_path = ca_cert_path
         self.ca_key_path = ca_key_path
+        self._cache: OrderedDict[str, _CachedCert] = OrderedDict()
+        self._cache_max_size = cache_max_size
+        self._cache_ttl = cache_ttl_seconds
+        self._cache_lock = threading.Lock()
         self._load_ca()
 
     def _load_ca(self):
@@ -39,8 +66,36 @@ class SecretDiscoveryHandler(sds_pb2_grpc.SecretDiscoveryServiceServicer):
             logger.error(f"Failed to load CA: {e}")
             raise
 
-    def _generate_cert(self, common_name: str):
-        """Generates a site-specific certificate signed by the Intermediate CA."""
+    def _get_cached_cert(self, common_name: str) -> _CachedCert | None:
+        """Retrieve a cached cert if it exists and hasn't expired."""
+        with self._cache_lock:
+            entry = self._cache.get(common_name)
+            if entry is None:
+                return None
+            if (time.monotonic() - entry.created_at) > self._cache_ttl:
+                del self._cache[common_name]
+                return None
+            # Move to end (most recently used)
+            self._cache.move_to_end(common_name)
+            return entry
+
+    def _put_cached_cert(self, common_name: str, entry: _CachedCert):
+        """Store a cert in the cache, evicting LRU entries if at capacity."""
+        with self._cache_lock:
+            if common_name in self._cache:
+                self._cache.move_to_end(common_name)
+                self._cache[common_name] = entry
+            else:
+                self._cache[common_name] = entry
+                while len(self._cache) > self._cache_max_size:
+                    self._cache.popitem(last=False)
+
+    def _generate_cert(self, common_name: str) -> tuple[bytes, bytes, bytes]:
+        """Generates a site-specific certificate signed by the Intermediate CA, with caching."""
+        cached = self._get_cached_cert(common_name)
+        if cached is not None:
+            return cached.cert_pem, cached.key_pem, cached.chain_pem
+
         private_key = rsa.generate_private_key(
             public_exponent=65537,
             key_size=2048,
@@ -52,16 +107,15 @@ class SecretDiscoveryHandler(sds_pb2_grpc.SecretDiscoveryServiceServicer):
 
         # SAN (Subject Alternative Name) is required for modern browsers/tools
         alt_names = [x509.DNSName(common_name)]
-        if common_name.startswith("*."):
-            pass # Wildcard handling if needed
 
+        now = datetime.datetime.now(datetime.timezone.utc)
         builder = x509.CertificateBuilder()
         builder = builder.subject_name(subject)
         builder = builder.issuer_name(self.ca_cert.subject)
         builder = builder.public_key(private_key.public_key())
         builder = builder.serial_number(x509.random_serial_number())
-        builder = builder.not_valid_before(datetime.datetime.utcnow() - datetime.timedelta(minutes=5))
-        builder = builder.not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=365))
+        builder = builder.not_valid_before(now - datetime.timedelta(minutes=5))
+        builder = builder.not_valid_after(now + datetime.timedelta(days=1))
         builder = builder.add_extension(
             x509.SubjectAlternativeName(alt_names),
             critical=False,
@@ -81,6 +135,11 @@ class SecretDiscoveryHandler(sds_pb2_grpc.SecretDiscoveryServiceServicer):
 
         # Also need the chain (Intermediate CA)
         chain_pem = self.ca_cert.public_bytes(serialization.Encoding.PEM)
+
+        self._put_cached_cert(
+            common_name,
+            _CachedCert(cert_pem, key_pem, chain_pem, time.monotonic()),
+        )
 
         return cert_pem, key_pem, chain_pem
 

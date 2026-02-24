@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import time
@@ -177,8 +178,8 @@ class ClusterCoordinator:
                     await self.queue_provider.push("clamav:scaling_request", "surge")
                     return
 
-                # Trigger ClamAV Reload
-                self._trigger_reload()
+                # Trigger ClamAV Reload (sync — run in thread to avoid blocking event loop)
+                await asyncio.to_thread(self._trigger_reload)
                 self.current_epoch = target_epoch
 
                 # Check if we should scale back down

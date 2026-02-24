@@ -16,8 +16,7 @@ WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
 # Copy dependency files and README (required by pyproject.toml)
-COPY pyproject.toml README.md ./
-# COPY uv.lock .
+COPY pyproject.toml uv.lock README.md ./
 
 # Copy source code
 COPY src/ src/
