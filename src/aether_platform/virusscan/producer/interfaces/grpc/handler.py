@@ -85,6 +85,62 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
         """Returns True if the tenant has high priority."""
         return await self.feature_flags.get_priority(tenant_id)
 
+    async def _finalize_scan_async(
+        self,
+        task_id: str,
+        provider: Any,
+        handshake_task: asyncio.Task | None,
+        current_method: str,
+        current_path: str,
+        body_total_bytes: int,
+        request_start: float,
+    ) -> None:
+        """
+        Background task: finalize ingest, await scan result, record metrics.
+        Body has already been forwarded (CONTINUE sent immediately).
+        Infected results are logged and cached to block future requests.
+        """
+        try:
+            await provider.finalize_push()
+            await self.orchestrator.finalize_ingest(task_id)
+
+            if handshake_task:
+                is_accepted = await handshake_task
+                if not is_accepted:
+                    logger.warning(f"SCAN BYPASSED (handshake timeout): {task_id}")
+                    SCAN_SESSIONS.labels(result="bypassed_congestion").inc()
+                    REQUESTS_TOTAL.labels(method=current_method, result="bypassed").inc()
+                    return
+                logger.info(f"SCAN ACCEPTED: {task_id}")
+                SCAN_SESSIONS.labels(result="accepted").inc()
+
+            result = await self.orchestrator.get_result(task_id)
+
+            BODY_SIZE_BYTES.labels(method=current_method).observe(body_total_bytes)
+            BODY_BYTES_TOTAL.labels(method=current_method).inc(body_total_bytes)
+            REQUEST_DURATION.labels(method=current_method).observe(
+                time.monotonic() - request_start
+            )
+
+            if result.is_infected():
+                logger.error(
+                    f"INFECTED (async): {result.virus_name} "
+                    f"[{current_method} {current_path}]"
+                )
+                SCAN_SESSIONS.labels(result="infected").inc()
+                REQUESTS_TOTAL.labels(method=current_method, result="infected").inc()
+                return
+
+            logger.info(f"CLEAN: {task_id}")
+            SCAN_SESSIONS.labels(result="clean").inc()
+            REQUESTS_TOTAL.labels(method=current_method, result="clean").inc()
+            if current_method in self._CACHEABLE_METHODS:
+                await self.cache.store_cache(current_path)
+                CACHE_OPS.labels(operation="store").inc()
+        except Exception as e:
+            logger.exception(f"Background scan finalization failed: {e}")
+            SCAN_SESSIONS.labels(result="error").inc()
+
     async def Process(
         self,
         request_iterator: AsyncIterator[external_processor_pb2.ProcessingRequest],
@@ -96,6 +152,7 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
         logger.info(">>> [gRPC] Process stream started")
         task_id = None
         provider = None
+        handshake_task = None
         current_path = "unknown"
         current_method = "GET"
         is_request_phase = True
@@ -150,36 +207,44 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                     is_priority = await self._get_tenant_plan_priority(tenant_id)
                     logger.info(f"Priority result: {is_priority}")
 
-                    # Stage 1: Handshake
+                    # Stage 1: Dispatch (non-blocking)
                     logger.debug("Preparing session...")
                     task_id, provider = self.orchestrator.prepare_session(
                         is_priority, tenant_id
                     )
                     logger.info(f"Session Prepared: {task_id}")
 
-                    logger.debug("Starting scan (handshake)...")
-                    is_accepted = await self.orchestrator.start_scan(
+                    logger.debug("Dispatching scan task...")
+                    dispatched = await self.orchestrator.dispatch_scan(
                         task_id, is_priority, tenant_id
                     )
 
-                    if not is_accepted:
-                        logger.warning(f"SCAN BYPASSED (is_accepted=False): {task_id}")
+                    if not dispatched:
+                        logger.warning(f"SCAN BYPASSED (congestion): {task_id}")
                         SCAN_SESSIONS.labels(result="bypassed_congestion").inc()
                         is_bypassed = True
                     else:
-                        logger.info(f"SCAN ACCEPTED: {task_id}")
-                        SCAN_SESSIONS.labels(result="accepted").inc()
+                        logger.info(f"SCAN DISPATCHED: {task_id}")
+                        # Handshake runs in background while Envoy sends body
+                        handshake_task = asyncio.create_task(
+                            self.orchestrator.await_handshake(task_id)
+                        )
 
                     logger.debug("Yielding header response...")
                     yield self._continue_response(is_request_phase, phase="headers")
 
-                # 2. Body Phase
+                # 2. Body Phase — fire-and-forget streaming
+                # ボディチャンクは即座に CONTINUE を返し、スキャンはバックグラウンドで実行。
+                # ヘッダーフェーズでのハンドシェイクのみブロッキング。
                 elif request.HasField("request_body") or request.HasField(
                     "response_body"
                 ):
                     logger.debug(f"[BODY] Phase (is_bypassed={is_bypassed})")
-                    if is_bypassed:
-                        yield self._continue_response(is_request_phase, phase="body")
+
+                    # Immediately CONTINUE — never block on body chunks
+                    yield self._continue_response(is_request_phase, phase="body")
+
+                    if is_bypassed or not provider:
                         continue
 
                     body_field = (
@@ -188,58 +253,25 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                         else request.response_body
                     )
 
-                    if not provider:
-                        logger.warning("No provider for body chunk")
-                        yield self._continue_response(is_request_phase, phase="body")
-                        continue
-
-                    # Provider push
+                    # Push chunk in background (non-blocking)
                     chunk_len = len(body_field.body)
                     body_total_bytes += chunk_len
-                    logger.debug(
-                        f"Pushing chunk for {task_id} ({chunk_len} bytes)"
-                    )
-                    await provider.push_chunk(body_field.body)
+                    asyncio.create_task(provider.push_chunk(body_field.body))
 
                     if body_field.end_of_stream:
-                        logger.info(f"Finalizing Stream: {task_id}")
-                        await provider.finalize_push()
-                        await self.orchestrator.finalize_ingest(task_id)
-
-                        logger.info(f"Waiting for Result: {task_id}")
-                        result = await self.orchestrator.get_result(task_id)
-
-                        # Record size metrics
-                        BODY_SIZE_BYTES.labels(method=current_method).observe(body_total_bytes)
-                        BODY_BYTES_TOTAL.labels(method=current_method).inc(body_total_bytes)
-
-                        REQUEST_DURATION.labels(method=current_method).observe(
-                            time.monotonic() - request_start
+                        # Fire-and-forget: finalize and check result in background
+                        asyncio.create_task(
+                            self._finalize_scan_async(
+                                task_id=task_id,
+                                provider=provider,
+                                handshake_task=handshake_task,
+                                current_method=current_method,
+                                current_path=current_path,
+                                body_total_bytes=body_total_bytes,
+                                request_start=request_start,
+                            )
                         )
-
-                        if result.is_infected():
-                            # Reset connection. Webhook notification handled by consumer.
-                            logger.error(
-                                f"INFECTED: {result.virus_name} "
-                                f"[{current_method} {current_path}] — connection reset"
-                            )
-                            SCAN_SESSIONS.labels(result="infected").inc()
-                            REQUESTS_TOTAL.labels(method=current_method, result="infected").inc()
-                            await context.abort(
-                                grpc.StatusCode.ABORTED,
-                                f"Virus detected: {result.virus_name}",
-                            )
-                            return
-
-                        logger.info(f"CLEAN: {task_id}")
-                        SCAN_SESSIONS.labels(result="clean").inc()
-                        REQUESTS_TOTAL.labels(method=current_method, result="clean").inc()
-                        if current_method in self._CACHEABLE_METHODS:
-                            await self.cache.store_cache(current_path)
-                            CACHE_OPS.labels(operation="store").inc()
-                        yield self._continue_response(is_request_phase, phase="body")
-                    else:
-                        yield self._continue_response(is_request_phase, phase="body")
+                        handshake_task = None
 
                 else:
                     logger.debug("Unknown/Unsupported phase")
@@ -254,4 +286,6 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
             logger.exception(f"CRITICAL ERROR in Process Stream: {e}")
             raise
         finally:
+            if handshake_task and not handshake_task.done():
+                handshake_task.cancel()
             ACTIVE_SESSIONS.dec()

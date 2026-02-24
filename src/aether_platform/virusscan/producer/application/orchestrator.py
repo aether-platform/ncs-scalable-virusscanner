@@ -57,17 +57,17 @@ class ScanOrchestrator:
         provider = self.provider_factory("STREAM", chunks_key=task_id)
         return task_id, provider
 
-    async def start_scan(
+    async def dispatch_scan(
         self, task_id: str, is_priority: bool = False, tenant_id: str = "unknown"
     ) -> bool:
         """
-        [Stage 1: Handshake]
-        スキャンの開始を要求し、コンシューマーが受付可能か確認（ハンドシェイク）します。
+        [Stage 1a: Dispatch]
+        混雑状況を事前チェックし、タスクをキューに投入します。
+        Envoy ext_proc のヘッダー応答をブロックしないよう、即座に返ります。
 
-        Steps:
-            1. Predictive Bypass: 過去のTATに基づき、混雑状況を事前チェック。
-            2. Enqueue Job: 軽量なメタデータを共通キューに投入。
-            3. Wait for ACK: 特定のワーカーがこのIDを拾う（Handshake成立）のを待つ。
+        Returns:
+            True: タスクがキューに投入された。
+            False: 混雑予測によりバイパスされた。
         """
         # 1. Predictive Congestion Bypass (事前混雑回避)
         last_tat = await self.adapter.get_last_tat(is_priority)
@@ -87,12 +87,22 @@ class ScanOrchestrator:
             task_id, "STREAM", start_time, tenant_id, is_priority, client_ip=client_ip
         )
 
-        # 3. Handshake Execution (ハンドシェイク待機)
-        # 300秒の待機。ワーカーがジョブを拾うと、Redisの 'ack:{id}' に1が書き込まれます。
-        is_accepted = await self.adapter.wait_for_ack(task_id, timeout=300)
+        return True
+
+    async def await_handshake(self, task_id: str, timeout: int = 30) -> bool:
+        """
+        [Stage 1b: Handshake]
+        コンシューマーがタスクを受け取った（ACK）ことを確認します。
+        ヘッダー応答後にバックグラウンドで実行されることを想定しています。
+
+        Returns:
+            True: コンシューマーがACKを返した。
+            False: タイムアウトまたはエラー。
+        """
+        is_accepted = await self.adapter.wait_for_ack(task_id, timeout=timeout)
         if not is_accepted:
             logger.warning(
-                f"HANDSHAKE FAILED (Timeout): {task_id} was not picked up within 300s."
+                f"HANDSHAKE FAILED (Timeout): {task_id} was not picked up within {timeout}s."
             )
             self._start_times.pop(task_id, None)
             return False
