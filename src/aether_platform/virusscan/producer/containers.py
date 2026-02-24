@@ -87,6 +87,15 @@ class ProducerContainer(containers.DeclarativeContainer):
         environment_key=config.FLAGSMITH_ENV_KEY,
     )
 
+    # Intelligent Cache Service (Fully managed by DI)
+    bypass_policy = providers.Factory(BypassPolicy)
+
+    cache_service = providers.Singleton(
+        IntelligentCacheService,
+        provider=state_store_provider,
+        policy=bypass_policy,
+    )
+
     # Feature Flag Providers
     feature_flags = providers.Selector(
         providers.Callable(os.getenv, "FEATURE_FLAG_ENGINE", "envvar"),
@@ -96,15 +105,6 @@ class ProducerContainer(containers.DeclarativeContainer):
             cache_service=cache_service,
         ),
         envvar=providers.Singleton(EnvVarFeatureFlagsProvider),
-    )
-
-    # Intelligent Cache Service (Fully managed by DI)
-    bypass_policy = providers.Factory(BypassPolicy)
-
-    cache_service = providers.Singleton(
-        IntelligentCacheService,
-        provider=state_store_provider,
-        policy=bypass_policy,
     )
 
     # Secret Discovery Handler
