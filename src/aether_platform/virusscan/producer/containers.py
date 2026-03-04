@@ -8,6 +8,8 @@ from aether_platform.intelligent_cache.application.service import (
     IntelligentCacheService,
 )
 from aether_platform.intelligent_cache.domain.policy import BypassPolicy
+from aether_platform.intelligent_cache.infrastructure.minio_store import MinioFileStore
+from aether_platform.intelligent_cache.infrastructure.nfs_store import NfsFileStore
 
 from ..common.providers import (
     InlineStreamProvider,
@@ -32,6 +34,12 @@ class ProducerContainer(containers.DeclarativeContainer):
         "CA_CERT_PATH": "/etc/egress-ca/tls.crt",
         "CA_KEY_PATH": "/etc/egress-ca/tls.key",
         "FLAGSMITH_ENV_KEY": "dummy-key",
+        "MINIO_ENDPOINT": "minio.minio.svc.cluster.local:9000",
+        "MINIO_ACCESS_KEY": "admin",
+        "MINIO_SECRET_KEY": "minio-admin-password",
+        "MINIO_BUCKET": "virusscan",
+        "FILE_STORE_BACKEND": "nfs",
+        "NFS_CACHE_PATH": "/data/cache",
     })
     config.from_dict(os.environ)
 
@@ -87,6 +95,23 @@ class ProducerContainer(containers.DeclarativeContainer):
         environment_key=config.FLAGSMITH_ENV_KEY,
     )
 
+    # File Store (MinIO or NFS, selected by FILE_STORE_BACKEND env var)
+    file_store = providers.Selector(
+        providers.Callable(os.getenv, "FILE_STORE_BACKEND", "nfs"),
+        minio=providers.Singleton(
+            MinioFileStore,
+            endpoint=config.MINIO_ENDPOINT,
+            access_key=config.MINIO_ACCESS_KEY,
+            secret_key=config.MINIO_SECRET_KEY,
+            bucket=config.MINIO_BUCKET,
+            secure=False,
+        ),
+        nfs=providers.Singleton(
+            NfsFileStore,
+            base_path=config.NFS_CACHE_PATH,
+        ),
+    )
+
     # Intelligent Cache Service (Fully managed by DI)
     bypass_policy = providers.Factory(BypassPolicy)
 
@@ -94,6 +119,7 @@ class ProducerContainer(containers.DeclarativeContainer):
         IntelligentCacheService,
         provider=state_store_provider,
         policy=bypass_policy,
+        file_store=file_store,
     )
 
     # Feature Flag Providers

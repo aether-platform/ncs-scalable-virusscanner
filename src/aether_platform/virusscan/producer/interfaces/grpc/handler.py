@@ -8,6 +8,7 @@ from envoy.service.ext_proc.v3 import (
     external_processor_pb2,
     external_processor_pb2_grpc,
 )
+from envoy.type.v3 import http_status_pb2
 
 from aether_platform.intelligent_cache.application.service import (
     IntelligentCacheService,
@@ -129,6 +130,7 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                 )
                 SCAN_SESSIONS.labels(result="infected").inc()
                 REQUESTS_TOTAL.labels(method=current_method, result="infected").inc()
+                await self.cache.store_infected(current_path, result.virus_name)
                 return
 
             logger.info(f"CLEAN: {task_id}")
@@ -155,10 +157,14 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
         handshake_task = None
         current_path = "unknown"
         current_method = "GET"
+        content_type = None
         is_request_phase = True
         is_bypassed = False
         request_start = time.monotonic()
         body_total_bytes = 0
+
+        # Streaming file upload: None=not checked, False=not eligible, Queue=active
+        file_upload_queue = None
 
         ACTIVE_SESSIONS.inc()
         try:
@@ -182,9 +188,28 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                             request.response_headers.headers.headers
                         )
                         is_request_phase = False
-                        logger.info("[HEADER] Response")
+                        content_type = headers.get("content-type")
+                        logger.info(f"[HEADER] Response (content-type={content_type})")
 
-                    # Cache check only for request headers of cacheable methods
+                    # Infected cache check — block and renew TTL on every access
+                    if is_request_phase:
+                        virus_name = await self.cache.check_infected(current_path)
+                        if virus_name:
+                            logger.warning(
+                                f"BLOCKED (infected cache): {virus_name} "
+                                f"[{current_method} {current_path}]"
+                            )
+                            await self.cache.store_infected(current_path, virus_name)
+                            REQUESTS_TOTAL.labels(method=current_method, result="blocked_infected").inc()
+                            yield external_processor_pb2.ProcessingResponse(
+                                immediate_response=external_processor_pb2.ImmediateResponse(
+                                    status=http_status_pb2.HttpStatus(code=403),
+                                    body=f"Blocked: known infected resource ({virus_name})".encode(),
+                                )
+                            )
+                            return
+
+                    # Clean cache check only for request headers of cacheable methods
                     if is_request_phase and current_method in self._CACHEABLE_METHODS:
                         if await self.cache.check_cache(current_path):
                             logger.info(f"CACHE HIT: {current_method} {current_path}")
@@ -196,8 +221,12 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                             continue
                         else:
                             CACHE_OPS.labels(operation="miss").inc()
-                    elif not is_request_phase and is_bypassed:
-                        # Response phase for a cached request — continue bypass
+
+                    # Response headers — pass through without creating a new session.
+                    # The scan session is created once during request_headers.
+                    # Response body will be scanned using that session.
+                    if not is_request_phase:
+                        logger.debug("[HEADER] Response — pass through")
                         yield self._continue_response(is_request_phase, phase="headers")
                         continue
 
@@ -254,11 +283,29 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
                     )
 
                     # Push chunk in background (non-blocking)
-                    chunk_len = len(body_field.body)
+                    chunk_data = body_field.body
+                    chunk_len = len(chunk_data)
                     body_total_bytes += chunk_len
-                    asyncio.create_task(provider.push_chunk(body_field.body))
+                    asyncio.create_task(provider.push_chunk(chunk_data))
+
+                    # Streaming file upload: start on first chunk, feed each chunk
+                    if file_upload_queue is None:
+                        if self.cache.should_store_file(current_path, content_type):
+                            file_upload_queue = self.cache.start_streaming_upload(
+                                task_id, self.settings.tenant_id,
+                                current_path, content_type,
+                            ) or False
+                        else:
+                            file_upload_queue = False
+                    if file_upload_queue:
+                        file_upload_queue.put(chunk_data)
 
                     if body_field.end_of_stream:
+                        # Signal end of file upload stream
+                        if file_upload_queue:
+                            file_upload_queue.put(None)
+                            file_upload_queue = None
+
                         # Fire-and-forget: finalize and check result in background
                         asyncio.create_task(
                             self._finalize_scan_async(
@@ -286,6 +333,9 @@ class VirusScannerExtProcHandler(external_processor_pb2_grpc.ExternalProcessorSe
             logger.exception(f"CRITICAL ERROR in Process Stream: {e}")
             raise
         finally:
+            # Clean up file upload queue on unexpected exit
+            if file_upload_queue:
+                file_upload_queue.put(None)
             if handshake_task and not handshake_task.done():
                 handshake_task.cancel()
             ACTIVE_SESSIONS.dec()
