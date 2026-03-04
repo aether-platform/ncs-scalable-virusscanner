@@ -37,6 +37,12 @@ class Settings(BaseSettings):
 
         self.scan_mount = self.scan_tmp_dir
 
+        # NATS notification settings
+        self.nats_enabled = (
+            os.getenv("NATS_ENABLED", "false").lower() == "true"
+        )
+        self.nats_url = os.getenv("NATS_URL", "nats://localhost:4222")
+
         # Memory checks
         self.enable_memory_check = (
             enable_memory_check

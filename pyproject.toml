@@ -23,11 +23,13 @@ consumer = [
     "psutil>=5.9.0",  # Memory monitoring
     "kubernetes>=31.0.0", # K8s API client
     "httpx>=0.27.0", # Async webhooks
+    "nats-py>=2.9.0", # NATS notifications
 ]
 producer = [
     "dependency-injector>=4.48.3",
     "flagsmith>=3.3.0",
     "grpcio-tools>=1.60.0",
+    "minio>=7.2.0",
 ]
 all = [
     "virus-scanner-image[consumer,producer]",

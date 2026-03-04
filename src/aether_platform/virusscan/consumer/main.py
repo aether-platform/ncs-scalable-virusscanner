@@ -18,11 +18,17 @@ except ImportError:
 from prometheus_client import make_asgi_app
 
 from .containers import Container
+from .infrastructure.nats_publisher import NatsNotificationPublisher
 from .interfaces.worker.handler import VirusScanHandler
+from .settings import Settings
 
 
 @inject
-def serve(handler: VirusScanHandler = Provide["handler"]):
+def serve(
+    handler: VirusScanHandler = Provide["handler"],
+    settings: Settings = Provide["settings"],
+    nats_publisher: NatsNotificationPublisher = Provide["nats_publisher"],
+):
     """Starts the VirusScanner Consumer (Worker) and a metrics server with Graceful Shutdown."""
 
     # Define Litestar app for metrics
@@ -59,6 +65,10 @@ def serve(handler: VirusScanHandler = Provide["handler"]):
     async def run_all():
         loop = asyncio.get_running_loop()
 
+        # Connect to NATS if enabled
+        if settings.nats_enabled:
+            await nats_publisher.connect()
+
         def signal_handler():
             logging.info("Graceful shutdown signal received...")
             shutdown_event.set()
@@ -66,7 +76,11 @@ def serve(handler: VirusScanHandler = Provide["handler"]):
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, signal_handler)
 
-        await asyncio.gather(handler.run(shutdown_event), run_server())
+        try:
+            await asyncio.gather(handler.run(shutdown_event), run_server())
+        finally:
+            if settings.nats_enabled:
+                await nats_publisher.disconnect()
 
     logging.info("Starting VirusScanner Consumer with Metrics/Health on port 9090")
     try:

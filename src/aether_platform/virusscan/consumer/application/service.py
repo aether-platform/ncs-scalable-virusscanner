@@ -146,6 +146,7 @@ class ScannerTaskService:
         start_process_time: float,
         tenant_id: str = "unknown",
         client_ip: str = "unknown",
+        user_id: str = "unknown",
     ):
         """
         [Stage 2: Scanning Workflow]
@@ -243,6 +244,20 @@ class ScannerTaskService:
                 )
             )
 
+        # 4.6 NATS real-time notification
+        if self.nats_publisher:
+            asyncio.create_task(
+                self.nats_publisher.publish_scan_result(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    is_infected=is_virus,
+                    virus_name=virus_name,
+                    stream_id=stream_id,
+                    bytes_scanned=bytes_scanned,
+                    scan_duration_ms=duration * 1000,
+                )
+            )
+
         # 5. Record Metrics (Legacy StateStore for backward compatibility if needed)
         try:
             tat_key = f"tat_{priority}_last"
@@ -260,6 +275,7 @@ class ScannerTaskService:
         settings: Settings = Provide["settings"],
         engine: ScannerEngineClient = Provide["engine"],
         provider_factory: Callable[..., Any] = Provide["data_provider"],
+        nats_publisher=None,
     ):
         """
         Initializes the task service.
@@ -269,6 +285,7 @@ class ScannerTaskService:
         self.settings = settings
         self.engine = engine
         self.provider_factory = provider_factory
+        self.nats_publisher = nats_publisher
         self.logger = logging.getLogger(__name__)
 
     async def process_task(
@@ -289,6 +306,7 @@ class ScannerTaskService:
 
             tenant_id = job.get("tenant_id", "unknown")
             client_ip = job.get("client_ip", "unknown")
+            user_id = job.get("user_id", "unknown")
 
             await self._process_stream_task(
                 stream_id,
@@ -297,6 +315,7 @@ class ScannerTaskService:
                 start_process_time,
                 tenant_id=tenant_id,
                 client_ip=client_ip,
+                user_id=user_id,
             )
         except json.JSONDecodeError:
             self.logger.error(

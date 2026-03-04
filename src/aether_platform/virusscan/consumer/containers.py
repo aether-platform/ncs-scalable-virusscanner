@@ -11,6 +11,8 @@ from aether_platform.virusscan.consumer.infrastructure.coordinator import \
     ClusterCoordinator
 from aether_platform.virusscan.consumer.infrastructure.engine_client import \
     ScannerEngineClient
+from aether_platform.virusscan.consumer.infrastructure.nats_publisher import \
+    NatsNotificationPublisher
 from aether_platform.virusscan.consumer.interfaces.worker.handler import \
     VirusScanHandler
 from aether_platform.virusscan.consumer.settings import Settings
@@ -68,6 +70,11 @@ class Container(containers.DeclarativeContainer):
         clamd_url=settings.provided.clamd_url,
     )
 
+    nats_publisher = providers.Singleton(
+        NatsNotificationPublisher,
+        nats_url=settings.provided.nats_url,
+    )
+
     # Application
     task_service = providers.Singleton(
         ScannerTaskService,
@@ -76,6 +83,7 @@ class Container(containers.DeclarativeContainer):
         settings=settings,
         engine=engine,
         provider_factory=data_provider,
+        nats_publisher=nats_publisher,
     )
 
     # Interface
